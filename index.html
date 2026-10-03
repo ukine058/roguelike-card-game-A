@@ -720,7 +720,7 @@ function cardDescription(c){
   allEffectFieldDefs().forEach(def=>{
     const base = c[def.key]!==undefined ? c[def.key] : (def.default||0);
     const show = def.showIf ? def.showIf(base) : base>0;
-    if(show) parts.push(def.desc(base));
+    if(show) parts.push(def.desc(base, c));
     const scale = c.scales && c.scales[def.key];
     if(scale && scale.source && scale.source!=='none' && scale.perPoint){
       const src = allScaleSources().find(s=>s.key===scale.source);
@@ -1677,12 +1677,19 @@ function runTurnStartCardOps(r, done){
 // generic loop that already walks EFFECT_FIELD_DEFS (the editor's field rows, the card
 // description, upgradedCardView, relicFieldDefsFor) works for custom statuses for free
 // once it walks allEffectFieldDefs() instead.
+// 状態の付与先。カード側の設定（csT_<状態ID>）があればそれを優先し、なければ状態の「標準の付与先」を使う。
+// 戻り値は 'self'（行動する本人）か 'opponent'（相手）。
+function csGrantSide(obj, st){
+  const t = obj && obj['csT_'+st.id];
+  if(t==='self' || t==='opponent') return t;
+  return st.target==='opponent' ? 'opponent' : 'self';
+}
 function customStatusFieldDefs(){
   return (S.customStatuses||[]).map(st=>({
     key: 'cs_'+st.id,
     label: `${st.emoji?st.emoji+' ':''}${st.name} 付与`,
     max: 99,
-    desc: (v)=> `${st.emoji?st.emoji+' ':''}${st.name}+${v}${st.target==='opponent'?'（相手に）':'（自分に）'}`,
+    desc: (v, obj)=> `${st.emoji?st.emoji+' ':''}${st.name}+${v}${csGrantSide(obj, st)==='opponent'?'（相手に）':'（自分に）'}`,
     _statusId: st.id,
   }));
 }
@@ -1740,9 +1747,9 @@ function resolveEnemyMoveEffects(r, e, c){
       if(amt<=0) return;
       const stDef = (S.customStatuses||[]).find(s=>s.id===def._statusId);
       if(!stDef) return;
-      const target = stDef.target==='opponent' ? p : e;
+      const target = csGrantSide(c, stDef)==='opponent' ? p : e;
       addCustomStatusStacks(target, stDef.id, amt);
-      pushLog(`${e.name}: ${def.desc(amt)}`);
+      pushLog(`${e.name}: ${def.desc(amt, c)}`);
     });
   }
 }
@@ -2172,9 +2179,9 @@ function applyEffectValues(r, c){
     if(amt<=0) return;
     const st = (S.customStatuses||[]).find(s=>s.id===def._statusId);
     if(!st) return;
-    const target = st.target==='opponent' ? r.enemy : r.player;
+    const target = csGrantSide(c, st)==='opponent' ? r.enemy : r.player;
     addCustomStatusStacks(target, st.id, amt);
-    pushLog(`${c.name}: ${def.desc(amt)}`);
+    pushLog(`${c.name}: ${def.desc(amt, c)}`);
   });
 }
 
@@ -2652,7 +2659,7 @@ function renderStatusEditor(){
       <div class="card mini" style="cursor:default;">
         <div class="banner" style="background:linear-gradient(90deg,#6a8a6a,#2e4a2e);"><div class="name">${st.emoji||''} ${st.name}</div></div>
         <div class="art"></div>
-        <div class="desc">${st.target==='opponent'?'相手':'自分'}が持つ状態。${kindLabel}</div>
+        <div class="desc">標準の付与先：${st.target==='opponent'?'相手':'自分'}。${kindLabel}</div>
       </div>
       <div class="edit-actions">
         <button class="edit-status-btn">編集</button>
@@ -2777,7 +2784,7 @@ function openStatusModal(status, isNew){
       <h3>${isNew? '状態を新規作成' : '状態を編集'}</h3>
       <div class="field"><label>名前</label><input type="text" id="sm-name" value="${escapeHtml(st.name)}"></div>
       <div class="field"><label>絵文字</label><input type="text" id="sm-emoji" value="${escapeHtml(st.emoji||'')}" maxlength="4"></div>
-      <div class="field"><label>対象（カード・レリックで付与した時、誰が受け取るか）</label>
+      <div class="field"><label>標準の付与先（カードでは、カードごとに「自分に／相手に」を変更できます。レリック・イベント・敵の戦闘開始時効果は、この設定に従います）</label>
         <select id="sm-target">
           <option value="self" ${st.target==='self'?'selected':''}>自分</option>
           <option value="opponent" ${st.target==='opponent'?'selected':''}>相手</option>
@@ -3004,6 +3011,17 @@ function openCardModal(card, isNew){
         return `
       <div class="field effect-field">
         <label>${def.label}</label>
+        ${def._statusId ? (()=>{
+          const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
+          const cur = c['csT_'+def._statusId]==='self' || c['csT_'+def._statusId]==='opponent' ? c['csT_'+def._statusId] : 'default';
+          const std = st && st.target==='opponent' ? '相手' : '自分';
+          return `<div style="margin-bottom:4px;"><span style="font-size:10px; color:var(--parchment-dim);">付与先：</span>
+            <select id="m-cst-${def._statusId}" style="width:auto; display:inline-block;">
+              <option value="default" ${cur==='default'?'selected':''}>状態の標準（${std}）</option>
+              <option value="self" ${cur==='self'?'selected':''}>自分に付与</option>
+              <option value="opponent" ${cur==='opponent'?'selected':''}>相手に付与</option>
+            </select></div>`;
+        })() : ''}
         <div style="display:flex; gap:6px; align-items:flex-end;">
           <div style="flex:1;">
             <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">基本値</div>
@@ -3170,6 +3188,10 @@ function openCardModal(card, isNew){
       const min = def.min!==undefined ? def.min : 0;
       const dflt = def.default!==undefined ? def.default : 0;
       updated[def.key] = clampInt(qs(`#m-${def.key}`,overlay).value,min,def.max,dflt);
+      if(def._statusId){
+        const tv = qs(`#m-cst-${def._statusId}`,overlay);
+        if(tv && (tv.value==='self' || tv.value==='opponent')) updated['csT_'+def._statusId] = tv.value;
+      }
       updated.upgrades[def.key] = clampInt(qs(`#m-upg-${def.key}`,overlay).value,-99,99,0);
       const ppDeltaEl = qs(`#m-scaleppdelta-${def.key}`,overlay);
       if(ppDeltaEl){
