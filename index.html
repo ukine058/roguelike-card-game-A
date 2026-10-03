@@ -1438,38 +1438,46 @@ function allScaleSources(){
   });
   return SCALE_SOURCES.concat(extra);
 }
-function scaleSourceValue(key, tag){
+// actor='enemy' のとき、「自分」は行動する敵、「敵」はプレイヤーとして数える。
+// 敵には手札・山札・ゴールドがないため、それらを参照する項目は0になる。
+function scaleSourceValue(key, tag, actor){
   const r = S.run; if(!r) return 0;
-  const p = r.player; const e = r.enemy;
-  if(typeof key==='string' && key.startsWith('csSelf:')) return customStatusStacks(p, key.slice(7));
-  if(typeof key==='string' && key.startsWith('csEnemy:')) return e ? customStatusStacks(e, key.slice(8)) : 0;
+  const isE = actor==='enemy';
+  const me = isE ? r.enemy : r.player;
+  const foe = isE ? r.player : r.enemy;
+  const n = (o,k)=> (o && Number(o[k])) || 0;
+  if(typeof key==='string' && key.startsWith('csSelf:')) return customStatusStacks(me, key.slice(7));
+  if(typeof key==='string' && key.startsWith('csEnemy:')) return foe ? customStatusStacks(foe, key.slice(8)) : 0;
+  const ownPile = !isE;
   switch(key){
-    case 'playerStrength': return p.strength + p.permStrength;
-    case 'playerMetallicize': return p.metallicize + p.permMetallicize;
-    case 'playerBlock': return p.block;
-    case 'playerGold': return p.gold;
-    case 'playerMissingHp': return Math.max(0, p.maxHp - p.hp);
-    case 'playerHandSize': return r.hand.length;
-    case 'playerDrawSize': return r.draw.length;
-    case 'playerDiscardSize': return r.discard.length;
-    case 'playerDrawDiscardSize': return r.draw.length + r.discard.length;
-    case 'enemyWeak': return e ? e.weak : 0;
-    case 'enemyVulnerable': return e ? e.vulnerable : 0;
-    case 'enemyPoison': return e ? e.poison : 0;
-    case 'enemyBlock': return e ? e.block : 0;
-    case 'enemyStrength': return e ? e.strength : 0;
-    case 'cardsPlayedThisTurn': return r.cardsPlayedThisTurn || 0;
-    case 'tagCountHand': return tag ? r.hand.filter(cid=>{ const c=cardById(cid); return c && c.tags && c.tags.includes(tag); }).length : 0;
-    case 'tagCountPlayedThisTurn': return tag ? (r.tagsPlayedThisTurn||[]).filter(t=>t===tag).length : 0;
-    case 'tagCountDrawDiscard': return tag ? [...r.draw, ...r.discard].filter(cid=>{ const c=cardById(cid); return c && c.tags && c.tags.includes(tag); }).length : 0;
+    case 'playerStrength': return n(me,'strength') + n(me,'permStrength');
+    case 'playerMetallicize': return n(me,'metallicize') + n(me,'permMetallicize');
+    case 'playerBlock': return n(me,'block');
+    case 'playerGold': return ownPile ? n(me,'gold') : 0;
+    case 'playerMissingHp': return Math.max(0, n(me,'maxHp') - n(me,'hp'));
+    case 'playerHandSize': return ownPile ? r.hand.length : 0;
+    case 'playerDrawSize': return ownPile ? r.draw.length : 0;
+    case 'playerDiscardSize': return ownPile ? r.discard.length : 0;
+    case 'playerDrawDiscardSize': return ownPile ? r.draw.length + r.discard.length : 0;
+    case 'enemyWeak': return n(foe,'weak');
+    case 'enemyVulnerable': return n(foe,'vulnerable');
+    case 'enemyPoison': return n(foe,'poison');
+    case 'enemyBlock': return n(foe,'block');
+    case 'enemyStrength': return n(foe,'strength');
+    case 'cardsPlayedThisTurn': return ownPile ? (r.cardsPlayedThisTurn || 0) : 0;
+    case 'tagCountHand': return ownPile && tag ? r.hand.filter(cid=>{ const c=cardById(cid); return c && c.tags && c.tags.includes(tag); }).length : 0;
+    case 'tagCountPlayedThisTurn': return ownPile && tag ? (r.tagsPlayedThisTurn||[]).filter(t=>t===tag).length : 0;
+    case 'tagCountDrawDiscard': return ownPile && tag ? [...r.draw, ...r.discard].filter(cid=>{ const c=cardById(cid); return c && c.tags && c.tags.includes(tag); }).length : 0;
     default: return 0;
   }
 }
-function scaleBonus(c, field){
+function scaleBonus(c, field, actor){
   const s = c.scales && c.scales[field];
   if(!s || !s.source || s.source==='none') return 0;
-  return Math.floor((s.perPoint||0) * scaleSourceValue(s.source, s.tag));
+  return Math.floor((s.perPoint||0) * scaleSourceValue(s.source, s.tag, actor));
 }
+// 敵が使うカードの効果値（参照増減を含む）
+function enemyVal(c, key){ return Math.max(0, (c[key]||0) + scaleBonus(c, key, 'enemy')); }
 
 const EFFECT_FIELD_DEFS = [
   {key:'damage', label:'ダメージ', max:99, desc:(v)=>`敵に${v}ダメージ`},
@@ -1710,19 +1718,43 @@ function customStatusFieldDefs(){
 function allEffectFieldDefs(){ return EFFECT_FIELD_DEFS.concat(customStatusFieldDefs()); }
 
 /* ===== Enemies using cards as their moves =====
-   An enemy's move pattern is just a list of card ids (cards flagged "usableBy: enemy"
-   or "both" in the card editor). Enemies have no hand/deck, so cardOp, draw, energy,
-   trigger timing, and scaling are not supported here — only the straightforward
-   numeric effects that make sense for a single move: damage, block, buffs/debuffs,
+   An enemy's move pattern is just a list of card ids. Enemies have no hand/deck, so draw
+   and energy are not supported here. Scaling ("参照増減") works from the enemy's point of
+   view, and trigger timing ("仕込み") is supported (see fireEnemyTriggers). The numeric
+   effects that make sense for a single move: damage, block, buffs/debuffs,
    heal, pierce/lifesteal, hits (repeat count) and custom statuses. Custom statuses
    route through the same target ('self'/'opponent') as they do for cards, just with
    the enemy as the actor instead of the player. */
 function resolveEnemyMoveEffects(r, e, c){
+  const prior = (e.triggers||[]).slice();   // この行動より前に仕込まれていた構え
+  resolveEnemyMoveBody(r, e, c);
+  // 「カードを使うたび」の構え：敵自身がカードを使ったときに発動（今使ったカードで仕込んだ構えは対象外）
+  fireEnemyTriggers(r, 'cardUsed', {card: c}, prior);
+}
+function resolveEnemyMoveBody(r, e, c){
+  // 仕込み（トリガー発動）のカードは、行動した時点では効果を出さず、きっかけを待つ
+  if(c.timing==='trigger'){
+    e.triggers = e.triggers || [];
+    e.triggers.push({
+      card: c,
+      triggerOn: c.triggerOn==='damaged' ? 'damaged' : 'cardUsed',
+      triggerTag: c.triggerTag || '',
+      triggerBlocked: !!c.triggerBlocked,
+      duration: c.duration==='turn' ? 'turn' : 'combat',
+    });
+    pushLog(`${e.name}は「${c.name}」の構えをとった。`);
+    return;
+  }
+  applyEnemyCardPayload(r, e, c);
+}
+// 敵のカード効果の本体（行動時、および仕込みの発動時に使う）
+function applyEnemyCardPayload(r, e, c){
   const p = r.player;
-  const replays = Math.max(1, c.hits||1);
+  const replays = Math.max(1, (c.hits||1) + scaleBonus(c,'hits','enemy'));
   for(let rep=0; rep<replays; rep++){
     if(e.hp<=0 || p.hp<=0) break;
-    const dmg = Math.max(0, c.damage||0);
+    const V = key=> enemyVal(c, key);
+    const dmg = V('damage');
     if(dmg>0){
       const dealt = applyDamageToPlayer(dmg + e.strength, c.pierce);
       if(r.lastHit && r.lastHit.total>0){ (r.damageEvents = r.damageEvents||[]).push({...r.lastHit}); }
@@ -1734,30 +1766,30 @@ function resolveEnemyMoveEffects(r, e, c){
         pushLog(`棘によって${e.name}に${reflectTotal}ダメージ。`);
       }
     }
-    const blk = Math.max(0, c.block||0);
+    const blk = V('block');
     if(blk>0){
       const total = blk + customBlockGainBonus(e);
       e.block += total;
       pushLog(`${e.name}は防御態勢。ブロック+${total}。`);
     }
-    const heal = Math.max(0, c.heal||0);
+    const heal = V('heal');
     if(heal>0) e.hp = Math.min(e.maxHp, e.hp + heal);
-    const strength = Math.max(0, c.strength||0) + Math.max(0, c.permStrength||0);
+    const strength = V('strength') + V('permStrength');
     if(strength>0){ e.strength += strength; pushLog(`${e.name}は力を高めた！ 強化+${strength}。`); }
-    const dexterity = Math.max(0, c.dexterity||0) + Math.max(0, c.permDexterity||0);
+    const dexterity = V('dexterity') + V('permDexterity');
     if(dexterity>0) e.dexterity += dexterity;
-    const metallicize = Math.max(0, c.metallicize||0) + Math.max(0, c.permMetallicize||0);
+    const metallicize = V('metallicize') + V('permMetallicize');
     if(metallicize>0) e.metallicize = (e.metallicize||0) + metallicize;
-    const thorns = Math.max(0, c.thorns||0) + Math.max(0, c.permThorns||0);
+    const thorns = V('thorns') + V('permThorns');
     if(thorns>0) e.thorns += thorns;
-    const weak = Math.max(0, c.weak||0);
+    const weak = V('weak');
     if(weak>0){ p.weak += weak; pushLog(`${e.name}の効果で弱体+${weak}。`); }
-    const vulnerable = Math.max(0, c.vulnerable||0);
+    const vulnerable = V('vulnerable');
     if(vulnerable>0){ p.vulnerable += vulnerable; pushLog(`${e.name}の効果で脆弱+${vulnerable}。`); }
-    const poison = Math.max(0, c.poison||0);
+    const poison = V('poison');
     if(poison>0){ p.poison += poison; pushLog(`${e.name}の効果で毒+${poison}。`); }
     customStatusFieldDefs().forEach(def=>{
-      const amt = Math.max(0, c[def.key]||0);
+      const amt = V(def.key);
       const stDef = (S.customStatuses||[]).find(s=>s.id===def._statusId);
       if(!stDef) return;
       const side = csGrantSide(c, stDef);
@@ -1772,6 +1804,23 @@ function resolveEnemyMoveEffects(r, e, c){
       pushLog(`${e.name}: ${def.desc(amt, c)}`);
     });
   }
+}
+// 敵が仕込んだトリガーの発動。kind='cardUsed'（敵自身が指定タグのカードを使った）／'damaged'（敵がダメージを受けた）
+function fireEnemyTriggers(r, kind, info, list){
+  const e = r.enemy;
+  if(!e || !e.triggers || !e.triggers.length || e.hp<=0 || r.player.hp<=0) return;
+  (list || e.triggers.slice()).forEach(t=>{
+    if(!e.triggers.includes(t)) return;
+    if(t.triggerOn!==kind) return;
+    if(e.hp<=0 || r.player.hp<=0) return;
+    if(kind==='cardUsed'){
+      if(t.triggerTag && !((info.card && info.card.tags)||[]).includes(t.triggerTag)) return;
+    } else {
+      if(!(info.hpLoss>0 || (t.triggerBlocked && info.total>0))) return;
+    }
+    pushLog(`${e.name}の「${t.card.name}」が発動！`);
+    applyEnemyCardPayload(r, e, t.card);
+  });
 }
 
 // Fields an enemy can be given "at combat start" (from the enemy editor). Permanent-
@@ -3014,10 +3063,11 @@ function openCardModal(card, isNew){
           </select></div>
         <div id="trigger-cardused-fields" style="${c.triggerOn==='damaged'?'display:none;':''}">
           <div class="field"><label>発動条件（このタグのカードを使うたび。空欄でどのカードでも）</label><input type="text" id="m-triggertag" value="${c.triggerTag||''}"></div>
+          <p class="hint">敵が使った場合は、「その敵がこのタグのカードを使うたび」（次の行動以降）に発動します。</p>
         </div>
         <div id="trigger-damaged-fields" style="${c.triggerOn==='damaged'?'':'display:none;'}">
           <div class="checkbox-field"><input type="checkbox" id="m-triggerblocked" ${c.triggerBlocked?'checked':''}><label for="m-triggerblocked">ブロックで全部防いだ攻撃でも発動する（OFFなら、HPが減ったときだけ）</label></div>
-          <p class="hint">攻撃1回（多段攻撃なら1ヒット）ごとに発動します。毒や棘など、攻撃以外のダメージでは発動しません。持続期間「このターンのみ」は、次の自分のターンの開始までです。</p>
+          <p class="hint">攻撃1回（多段攻撃なら1ヒット）ごとに発動します。毒や棘など、攻撃以外のダメージでは発動しません。敵が使った場合は、「その敵がプレイヤーの攻撃でダメージを受けるたび」に発動します。持続期間「このターンのみ」は、次の自分のターンの開始までです。</p>
         </div>
         <div class="field"><label>持続期間</label>
           <select id="m-duration">
@@ -3441,7 +3491,7 @@ function makeEnemy(floorIndex){
     hp, maxHp: hp, block:0, strength:0, dexterity:0, weak:0, vulnerable:0, poison:0, stun:0, thorns:0,
     // copied, so cards added during the battle never touch the enemy's saved definition
     deck: (t.deck && t.deck.length ? t.deck : [{cardId:'strike', weight:1}]).map(x=>({...x})),
-    customStatus: {}, startEffect: t.startEffect || {},
+    customStatus: {}, triggers: [], startEffect: t.startEffect || {},
     dropRelicId: t.dropRelicId || '', dropCardIds: (t.dropCardIds||[]).slice(),
   };
   runtimeEnemy.nextMoveId = rollEnemyMove(runtimeEnemy);
@@ -3757,6 +3807,7 @@ function applyDamageToEnemy(raw, pierce){
   let blocked = 0;
   if(!pierce){ blocked = Math.min(e.block, dmg); e.block -= blocked; dmg -= blocked; }
   e.hp = Math.max(0, e.hp - dmg);
+  if(dmg+blocked>0) fireEnemyTriggers(r, 'damaged', {hpLoss: dmg, total: dmg+blocked});
   return dmg+blocked;
 }
 function applyDamageToPlayer(raw){
@@ -3833,6 +3884,7 @@ function runEnemyTurn(){
   } else {
     const move = cardById(e.nextMoveId);
     r.damageEvents = [];
+    e.triggers = (e.triggers||[]).filter(t=>t.duration!=='turn'); // 「このターンのみ」の構えは、次の行動の前に解ける
     if(move) resolveEnemyMoveEffects(r, e, move);
     // ダメージを受けたときのトリガー（カード操作で選択画面が出る場合は、選び終わってから続きへ）
     fireDamageTriggers(r, ()=>{
@@ -3960,35 +4012,37 @@ function statusChips(entity){
       if(v) chips.push(`${st.emoji||'❔'} ${st.name} ${v}`);
     });
   }
+  (entity.triggers||[]).forEach(t=> chips.push(`⚡ 構え：${escapeHtml(t.card.name)}`));
   return chips.map(c=>`<span class="status-chip">${c}</span>`).join('');
 }
 function intentLabel(e){
   const c = cardById(e.nextMoveId);
   if(!c) return {cls:'buf', text:'予告: ？'};
   // Format: 予告: <icon><skill name> <effect><value>・<effect><value>...
-  // Damage/block already include the enemy's current strength/dexterity, as before.
+  // 数値は、敵の現在の強化・器用や、参照増減（失ったHPなど）を反映した値を表示する。
+  const V = key=> enemyVal(c, key);
   const parts = [];
-  const hits = Math.max(1, c.hits||1);
-  if(c.damage>0){
-    const per = c.damage + e.strength;
+  const hits = Math.max(1, (c.hits||1) + scaleBonus(c,'hits','enemy'));
+  if(V('damage')>0){
+    const per = V('damage') + e.strength;
     parts.push(`ダメージ${per}${hits>1?`×${hits}`:''}`);
   }
-  if(c.block>0) parts.push(`ブロック${c.block + e.dexterity}`);
-  const str = (c.strength||0)+(c.permStrength||0);
+  if(V('block')>0) parts.push(`ブロック${V('block') + e.dexterity}`);
+  const str = V('strength')+V('permStrength');
   if(str>0) parts.push(`強化${str}`);
-  const dex = (c.dexterity||0)+(c.permDexterity||0);
+  const dex = V('dexterity')+V('permDexterity');
   if(dex>0) parts.push(`器用${dex}`);
-  const met = (c.metallicize||0)+(c.permMetallicize||0);
+  const met = V('metallicize')+V('permMetallicize');
   if(met>0) parts.push(`自動ブロック${met}`);
-  const thr = (c.thorns||0)+(c.permThorns||0);
+  const thr = V('thorns')+V('permThorns');
   if(thr>0) parts.push(`棘${thr}`);
-  if(c.weak>0) parts.push(`弱体${c.weak}`);
-  if(c.vulnerable>0) parts.push(`脆弱${c.vulnerable}`);
-  if(c.poison>0) parts.push(`毒${c.poison}`);
-  if(c.heal>0) parts.push(`回復${c.heal}`);
+  if(V('weak')>0) parts.push(`弱体${V('weak')}`);
+  if(V('vulnerable')>0) parts.push(`脆弱${V('vulnerable')}`);
+  if(V('poison')>0) parts.push(`毒${V('poison')}`);
+  if(V('heal')>0) parts.push(`回復${V('heal')}`);
   if(c.regen>0) parts.push(`再生${c.regen}`);
   customStatusFieldDefs().forEach(def=>{
-    const amt = c[def.key];
+    const amt = V(def.key);
     const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
     if(!st) return;
     const both = csGrantSide(c, st)==='both';
@@ -4004,9 +4058,14 @@ function intentLabel(e){
     const t = enemyOpText(c.cardOp);
     if(t) parts.push(t);
   }
-  const cls = c.damage>0 ? 'atk' : (c.block>0 ? 'def' : 'buf');
-  const base = c.baseId ? c.name : c.name;
-  return {cls, text:`予告: ${cardIcon(c)}${escapeHtml(base)}${parts.length?' '+parts.join('・'):''}`};
+  const isTrig = c.timing==='trigger';
+  const cls = isTrig ? 'buf' : (V('damage')>0 ? 'atk' : (V('block')>0 ? 'def' : 'buf'));
+  let trigText = '';
+  if(isTrig){
+    const when = c.triggerOn==='damaged' ? 'ダメージを受けたとき' : `${c.triggerTag?`[${c.triggerTag}]の`:''}カードを使ったとき`;
+    trigText = `【構え：${when}】`;
+  }
+  return {cls, text:`予告: ${cardIcon(c)}${escapeHtml(c.name)}${trigText}${parts.length?' '+parts.join('・'):''}`};
 }
 
 function renderCardChoiceOverlay(r){
