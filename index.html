@@ -723,7 +723,7 @@ function cardDescription(c){
     if(show) parts.push(def.desc(base));
     const scale = c.scales && c.scales[def.key];
     if(scale && scale.source && scale.source!=='none' && scale.perPoint){
-      const src = SCALE_SOURCES.find(s=>s.key===scale.source);
+      const src = allScaleSources().find(s=>s.key===scale.source);
       const label = src ? src.label : scale.source;
       const tagPart = (scale.source==='tagCountHand'||scale.source==='tagCountPlayedThisTurn'||scale.source==='tagCountDrawDiscard') && scale.tag ? `[${scale.tag}]` : '';
       parts.push(`${def.label}: ${label}${tagPart}×${scale.perPoint}`);
@@ -1422,9 +1422,21 @@ const SCALE_SOURCES = [
   {key:'tagCountPlayedThisTurn', label:'このターン使った指定タグ枚数'},
   {key:'tagCountDrawDiscard', label:'山札+捨て札内の指定タグ枚数（合計）'},
 ];
+// 参照元の一覧。カスタム状態ごとに「自分の○○スタック数」「敵の○○スタック数」を追加する
+function allScaleSources(){
+  const extra = [];
+  (S.customStatuses||[]).forEach(st=>{
+    const nm = `${st.emoji?st.emoji+' ':''}${st.name}`;
+    extra.push({key:'csSelf:'+st.id, label:`自分の「${nm}」スタック数`});
+    extra.push({key:'csEnemy:'+st.id, label:`敵の「${nm}」スタック数`});
+  });
+  return SCALE_SOURCES.concat(extra);
+}
 function scaleSourceValue(key, tag){
   const r = S.run; if(!r) return 0;
   const p = r.player; const e = r.enemy;
+  if(typeof key==='string' && key.startsWith('csSelf:')) return customStatusStacks(p, key.slice(7));
+  if(typeof key==='string' && key.startsWith('csEnemy:')) return e ? customStatusStacks(e, key.slice(8)) : 0;
   switch(key){
     case 'playerStrength': return p.strength + p.permStrength;
     case 'playerMetallicize': return p.metallicize + p.permMetallicize;
@@ -2602,6 +2614,7 @@ function customStatusUsage(statusId){
   const cardIds = S.cards.filter(c=>
     (c[key]) || (c.scales && c.scales[key]) || (c.upgrades && (c.upgrades[key] || (c.upgrades.scalePP && c.upgrades.scalePP[key])))
     || (c.cardOp && c.cardOp.enabled && c.cardOp.type==='grantBuff' && c.cardOp.buffField===key)
+    || Object.values(c.scales||{}).some(sc=> sc && (sc.source==='csSelf:'+statusId || sc.source==='csEnemy:'+statusId))
   ).map(c=>c.id);
   const relicIds = S.relics.filter(rel=> rel.effect && rel.effect[key]).map(rel=>rel.id);
   return {cardIds, relicIds};
@@ -2610,7 +2623,10 @@ function stripCustomStatusRefs(statusId){
   const key = 'cs_'+statusId;
   S.cards.forEach(c=>{
     delete c[key];
-    if(c.scales) delete c.scales[key];
+    if(c.scales){
+      delete c.scales[key];
+      Object.keys(c.scales).forEach(f=>{ const sc = c.scales[f]; if(sc && (sc.source==='csSelf:'+statusId || sc.source==='csEnemy:'+statusId)) delete c.scales[f]; });
+    }
     if(c.upgrades){ delete c.upgrades[key]; if(c.upgrades.scalePP) delete c.upgrades.scalePP[key]; }
     if(c.cardOp && c.cardOp.buffField===key){ c.cardOp.enabled = false; }
   });
@@ -3002,7 +3018,7 @@ function openCardModal(card, isNew){
         <div class="scale-config" data-field="${def.key}" style="${sc?'':'display:none;'} margin-top:6px; padding:8px; background:var(--bg-void); border:1px solid var(--line); border-radius:4px;">
           <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照元</div>
           <select id="m-scalesrc-${def.key}" style="margin-bottom:6px;">
-            ${SCALE_SOURCES.map(s=>`<option value="${s.key}" ${(sc&&sc.source||'none')===s.key?'selected':''}>${s.label}</option>`).join('')}
+            ${allScaleSources().map(s=>`<option value="${escapeHtml(s.key)}" ${(sc&&sc.source||'none')===s.key?'selected':''}>${escapeHtml(s.label)}</option>`).join('')}
           </select>
           <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照タグ（タグ数参照時のみ）</div>
           <input type="text" id="m-scaletag-${def.key}" value="${sc?sc.tag||'':''}" style="margin-bottom:6px;">
