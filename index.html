@@ -1621,9 +1621,19 @@ function tickCustomStatusesForTurn(entity){
         // the one holding the status (whoever applied it — a card, a relic, or an enemy
         // move). It is queued and resolved after this turn's hand has been drawn (see
         // runTurnStartCardOps). How many times it fires uses this effect's magnitude.
+        const times = Math.max(0, Math.round(mag));
         if(entity===S.run.player){
-          const times = Math.max(0, Math.round(mag));
           for(let i=0;i<times;i++) queueTurnStartOp(S.run, {...eff.op, enabled:true}, `${tag}の効果`);
+        } else {
+          // 敵が持っている場合: 敵のターン開始時に予約し、プレイヤーの次のターン開始時（手札を引いた後）に
+          // プレイヤーのデッキへ作用する（敵のカード操作技と同じ扱い）。
+          const rr = S.run;
+          for(let i=0;i<times;i++){
+            const op = {...eff.op, enabled:true, fromEnemy:true};
+            queueTurnStartOp(rr, op, `${entity.name}の${tag}`);
+            const t = enemyOpText(op);
+            rr.pendingTurnStartOps[rr.pendingTurnStartOps.length-1].label = `${entity.name}の${tag}の効果${t?'：'+t:''}`;
+          }
         }
       }
     });
@@ -1636,14 +1646,15 @@ function tickCustomStatusesForTurn(entity){
 }
 
 // ---- Card operations that resolve at the start of the player's turn, after the draw ----
-// Sources: statuses the player holds, and enemy moves that carry a card-operation.
-// Enemies can only use the disruptive operations below; the rest (upgrade, duplicate,
-// free-play, move-to-hand) would help the player.
-const ENEMY_CARDOP_TYPES = ['moveToDiscard','moveToExhausted','moveToDraw','generateToHand','generateToDraw','grantBuff'];
+// Sources: statuses the player or the enemy holds, and enemy moves that carry a card-operation.
+// An operation used by the ENEMY has its point of view flipped (see resolveEnemyCardOp):
+// "add to the enemy's deck" goes into the PLAYER's draw pile, every other operation acts on
+// the enemy's own deck.
 function opChooseVerb(op){
   return ({moveToDiscard:'捨てる', moveToExhausted:'消滅させる', moveToDraw:'山札に戻す', moveToHand:'手札に移す',
     upgrade:'強化する', duplicate:'複製する', grantBuff:'効果を付与する', generateToHand:'生成する', generateToDraw:'生成する'})[op.type] || '選ぶ';
 }
+// 敵が使うカード操作の説明（視点反転後の内容）。効果のない操作は空文字を返す。
 function enemyOpText(op){
   const lo = Math.min(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
   const hi = Math.max(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
@@ -1651,22 +1662,22 @@ function enemyOpText(op){
     : op.countMode==='random' ? `${lo}〜${hi}枚`
     : `${op.countFixed!==undefined?op.countFixed:1}枚`;
   const tag = op.filterTag ? `[${op.filterTag}]の` : '';
-  const pile = (PILE_OPTIONS.find(x=>x.key===op.fromPile)||{}).label || '手札';
-  const pick = op.countMode==='choose' ? '（プレイヤーが選ぶ）' : '';
-  const perm = op.permanent ? '（永続）' : '';
-  let body;
-  if(op.type==='moveToDiscard') body = `${pile}の${tag}カード${n}を捨てさせる`;
-  else if(op.type==='moveToExhausted') body = `${pile}の${tag}カード${n}を消滅させる`;
-  else if(op.type==='moveToDraw') body = `${pile}の${tag}カード${n}を山札に戻す`;
-  else if(op.type==='generateToHand') body = `カード${n}を手札に加える`;
-  else if(op.type==='generateToDraw') body = `カード${n}を山札に加える`;
-  else if(op.type==='grantBuff'){
-    const def = EFFECT_FIELD_DEFS.find(d=>d.key===op.buffField);
-    const name = def ? def.label.replace(/（.*$/,'') : (op.buffField||'');
-    const amt = op.buffAmount||0;
-    body = `${pile}の${tag}カード${n}の${name}${amt>=0?'+':''}${amt}`;
-  } else body = '';
-  return body + pick + perm;
+  switch(op.type){
+    case 'generateToEnemyDeck': return `カード${n}をあなたの山札に加える`;
+    case 'moveToDiscard': case 'moveToExhausted': return `自分のデッキから${tag}カード${n}を取り除く`;
+    case 'upgrade': return `自分のデッキの${tag}カード${n}を強化する`;
+    case 'duplicate': return `自分のデッキの${tag}カード${n}を複製する`;
+    case 'play': return `自分のデッキの${tag}カード${n}を即座に使う`;
+    case 'generateToHand': case 'generateToDraw': return `カード${n}を生成し、自分のデッキに加える`;
+    case 'generatePlay': return `カード${n}を生成し、即座に使う`;
+    case 'grantBuff': {
+      const def = EFFECT_FIELD_DEFS.find(d=>d.key===op.buffField);
+      const name = def ? def.label.replace(/（.*$/,'') : (op.buffField||'');
+      const amt = op.buffAmount||0;
+      return `自分のデッキの${tag}カード${n}の${name}${amt>=0?'+':''}${amt}`;
+    }
+    default: return ''; // moveToHand / moveToDraw: 敵のデッキでは効果なし
+  }
 }
 function queueTurnStartOp(r, op, label){
   if(!r.pendingTurnStartOps) r.pendingTurnStartOps = [];
@@ -1847,9 +1858,10 @@ function applyEnemyStartEffects(r, e, effect){
     if(amt<=0) return;
     const stDef = (S.customStatuses||[]).find(s=>s.id===def._statusId);
     if(!stDef) return;
-    const target = stDef.target==='opponent' ? r.player : e;
+    // 付与先は敵の視点: 'opponent'＝プレイヤー、'self'＝敵自身。敵ごとの設定（csT_）を優先し、なければ状態の標準。
+    const target = csGrantSide(eff, stDef)==='opponent' ? r.player : e;
     addCustomStatusStacks(target, stDef.id, amt);
-    pushLog(`${e.name}: ${def.desc(amt)}`);
+    pushLog(`${e.name}: ${def.desc(amt, eff)}`);
   });
 }
 
@@ -1948,8 +1960,98 @@ function pickWithReplacement(entries, count){
 // countMode "choose" hands control to the player (via r.pendingChoice) and only calls
 // done() once they confirm a selection — so every caller of resolveCardOp must treat
 // it as asynchronous and continue its own work from inside `done`.
+// 敵が使うカード操作は、視点が反転する:
+//  ・「敵のデッキに加える」→ 敵から見た相手＝プレイヤーの山札に加える（この戦闘中のみ）
+//  ・それ以外 → 敵自身のデッキ（r.enemy.deck）に作用する。敵には手札・山札・捨て札の区別がないので
+//    「対象の山」は無視する。「捨て札に移動」「消滅」はデッキから取り除く（最後の1枚は残す）。
+//    「手札に移動」「山札に加える（既存カード）」は効果なし。プレイヤーが選ぶ設定はランダムになる。
+// 敵のデッキは戦闘ごとに作り直されるため、変更はこの戦闘中のみ有効。
+function enemyFreePlay(r, e, rawId){
+  const c = cardById(rawId);
+  if(!c || e.hp<=0 || r.player.hp<=0) return;
+  pushLog(`${e.name}は「${c.name}」をコストなしで使った。`);
+  resolveEnemyMoveEffects(r, e, c);
+}
+function resolveEnemyCardOp(r, op, done){
+  const e = r.enemy;
+  const rollCount = (avail)=>{
+    if(op.countMode==='all') return avail;
+    if(op.countMode==='random'){
+      const a = op.countMin!==undefined?op.countMin:1, b = op.countMax!==undefined?op.countMax:1;
+      const lo = Math.min(a,b), hi = Math.max(a,b);
+      return lo + Math.floor(Math.random()*(hi-lo+1));
+    }
+    return op.countFixed!==undefined ? op.countFixed : 1;
+  };
+  const nameOf = rawId=>{ const c = cardById(rawId); return c ? c.name : rawId; };
+
+  if(GENERATE_TYPES.includes(op.type)){
+    const pool = collectGeneratePool(op);
+    if(pool.length===0){ done(); return; }
+    const count = Math.max(0, rollCount(pool.length));
+    const picked = pickWithReplacement(pool, count);
+    if(picked.length===0){ done(); return; }
+    const names = picked.map(x=>nameOf(x.rawId)).join('」「');
+    if(op.type==='generateToEnemyDeck'){
+      const newIds = picked.map(x=>{
+        const iid = newId();
+        r.temporaryCardIids[iid] = true;
+        return withInstanceSuffix(x.rawId, iid);
+      });
+      r.draw = shuffle([...r.draw, ...newIds]);
+      pushLog(`${e.name}があなたの山札に「${names}」を加えた。`);
+    } else if(op.type==='generatePlay'){
+      pushLog(`${e.name}は「${names}」を生成した。`);
+      picked.forEach(x=> enemyFreePlay(r, e, x.rawId));
+    } else {
+      const w = Math.max(1, op.deckWeight||1);
+      picked.forEach(x=>{ e.deck.push({cardId:x.rawId, weight:w, temp:true}); });
+      pushLog(`${e.name}のデッキに「${names}」が加わった（重み${w}）。`);
+    }
+    done(); return;
+  }
+
+  if(op.type==='moveToHand' || op.type==='moveToDraw'){ done(); return; }
+  let entries = e.deck.map((d,i)=>({idx:i, d}));
+  if(op.filterTag) entries = entries.filter(x=>{ const c = cardById(x.d.cardId); return c && c.tags && c.tags.includes(op.filterTag); });
+  if(op.type==='upgrade') entries = entries.filter(x=>!isUpgradedInstanceId(x.d.cardId));
+  let count = Math.min(entries.length, Math.max(0, rollCount(entries.length)));
+  if(op.type==='moveToDiscard' || op.type==='moveToExhausted') count = Math.min(count, e.deck.length-1);
+  if(count<=0){ done(); return; }
+  const sel = shuffle(entries).slice(0, count);
+  const names = sel.map(x=>nameOf(x.d.cardId)).join('」「');
+
+  if(op.type==='moveToDiscard' || op.type==='moveToExhausted'){
+    sel.map(x=>x.idx).sort((a,b)=>b-a).forEach(i=> e.deck.splice(i,1));
+    pushLog(`${e.name}のデッキから「${names}」が取り除かれた。`);
+  } else if(op.type==='upgrade'){
+    sel.forEach(x=>{ x.d.cardId = upgradeRawId(x.d.cardId); });
+    pushLog(`${e.name}のデッキの「${names}」が強化された。`);
+  } else if(op.type==='duplicate'){
+    sel.forEach(x=>{ e.deck.push({cardId:splitInstanceId(x.d.cardId).cid, weight:x.d.weight||1, temp:true}); });
+    pushLog(`${e.name}のデッキに「${names}」の複製が加わった。`);
+  } else if(op.type==='grantBuff'){
+    const field = op.buffField, amount = op.buffAmount||0;
+    if(field && amount){
+      sel.forEach(x=>{
+        const {cid, iid} = splitInstanceId(x.d.cardId);
+        const useIid = iid || newId();
+        if(!r.tempInstanceBuffs[useIid]) r.tempInstanceBuffs[useIid] = {};
+        r.tempInstanceBuffs[useIid][field] = (r.tempInstanceBuffs[useIid][field]||0) + amount;
+        x.d.cardId = withInstanceSuffix(cid, useIid);
+      });
+      const fd = EFFECT_FIELD_DEFS.find(d=>d.key===field);
+      pushLog(`${e.name}のデッキの「${names}」に「${fd?fd.label:field}」${amount>=0?'+':''}${amount}が付与された。`);
+    }
+  } else if(op.type==='play'){
+    sel.forEach(x=> enemyFreePlay(r, e, x.d.cardId));
+  }
+  done();
+}
+
 function resolveCardOp(r, op, done){
   if(!op || !op.enabled){ done(); return; }
+  if(op.fromEnemy){ resolveEnemyCardOp(r, op, done); return; }
   // The player never picks which card goes into the enemy's deck: "choose" acts as "fixed".
   if(op.type==='generateToEnemyDeck' && op.countMode==='choose') op = {...op, countMode:'fixed'};
 
@@ -2193,6 +2295,12 @@ function applyEffectValues(r, c){
     const dealt = applyDamageToEnemy(dmgVal + r.player.strength + r.player.permStrength, c.pierce);
     pushLog(`${c.name}: 敵に${dealt}ダメージ${c.pierce?'（貫通）':''}。`);
     if(c.lifesteal && dealt>0){ r.player.hp = Math.min(r.player.maxHp, r.player.hp + dealt); }
+    // 敵が持つカスタム状態の「反射」: 攻撃を受けた敵が、攻撃した側にダメージを返す（ブロック無視）
+    const foeReflect = customReflectDamage(r.enemy);
+    if(foeReflect>0 && r.enemy.hp>0 && r.player.hp>0){
+      r.player.hp = Math.max(0, r.player.hp - foeReflect);
+      pushLog(`${r.enemy.name}の反射によって${foeReflect}ダメージを受けた。`);
+    }
   }
   const blockVal = Math.max(0, (c.block||0) + scaleBonus(c,'block'));
   if(blockVal>0){
@@ -2510,7 +2618,7 @@ function openEnemyModal(enemy, isNew){
       <div class="field"><label>基礎HP（階層が進むと設定の割合で増加）</label><input type="number" id="em-hp" value="${en.baseHp}" min="1" max="999"></div>
       <div class="field"><label>出現の重み（同じ種別の中での出やすさ）</label><input type="number" id="em-weight" value="${en.weight||1}" min="1" max="20"></div>
       <div class="section-label">所持デッキ</div>
-      <p class="hint">プレイヤーと同じように、この敵は自分のターンにデッキから3枚を重み付きで引き、その3枚の中から重み付き確率で1枚を選んで使用します（毎ターン繰り返します）。既存のカードをそのまま使えます。デッキ操作・ドロー・エネルギー・トリガー発動は敵には効きません。</p>
+      <p class="hint">プレイヤーと同じように、この敵は自分のターンにデッキから3枚を重み付きで引き、その3枚の中から重み付き確率で1枚を選んで使用します（毎ターン繰り返します）。既存のカードをそのまま使えます。ドロー・エネルギーは敵には効きません。カード操作は視点が反転し、敵自身のデッキに作用します（「敵のデッキに加える」だけはプレイヤーの山札に加わります）。</p>
       ${movePool.length===0 ? `<p class="hint">カードがありません。先にカード編集画面で作成してください。</p>` : ''}
       <div id="em-move-add" style="display:flex; gap:6px; margin-bottom:8px;">
         <select id="em-move-pick" style="flex:2;">
@@ -2524,6 +2632,16 @@ function openEnemyModal(enemy, isNew){
       ${enemyStartFieldDefs().map(def=>`
       <div class="field">
         <label>${def.label}</label>
+        ${def._statusId ? (()=>{
+          const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
+          const cur = ['self','opponent'].includes(en.startEffect['csT_'+def._statusId]) ? en.startEffect['csT_'+def._statusId] : 'default';
+          const std = st && st.target==='opponent' ? 'プレイヤー' : '敵自身';
+          return `<select id="em-efft-${def._statusId}" style="margin-bottom:4px;">
+            <option value="default" ${cur==='default'?'selected':''}>付与先：状態の標準（${std}）</option>
+            <option value="self" ${cur==='self'?'selected':''}>付与先：敵自身</option>
+            <option value="opponent" ${cur==='opponent'?'selected':''}>付与先：プレイヤー</option>
+          </select>`;
+        })() : ''}
         <input type="number" id="em-eff-${def.key}" value="${en.startEffect[def.key]||0}" min="0" max="${def.max||99}">
       </div>`).join('')}
       <div class="section-label">撃破時のドロップ</div>
@@ -2627,6 +2745,10 @@ function openEnemyModal(enemy, isNew){
     };
     enemyStartFieldDefs().forEach(def=>{
       updated.startEffect[def.key] = clampInt(qs(`#em-eff-${def.key}`,overlay).value,0,def.max||99,0);
+      if(def._statusId){
+        const sel = qs(`#em-efft-${def._statusId}`,overlay);
+        if(sel && ['self','opponent'].includes(sel.value)) updated.startEffect['csT_'+def._statusId] = sel.value;
+      }
     });
     if(updated.deck.length===0) updated.deck = [{cardId:'strike', weight:1}];
     if(isNew){ S.enemies.push(updated); }
@@ -2825,12 +2947,12 @@ function statusEffectFormHTML(eff, i){
     const num = (f,label,val)=>`<div><label>${label}</label><input type="number" ${opAt} data-f="${f}" data-num="1" value="${val}" min="0" max="20"></div>`;
     body = `
       ${magHTML('操作を行う回数（固定値、または1スタックあたりの係数）')}
-      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。敵が持っている間は発動しません。</p>
+      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。敵が持っている間は視点が反転し、敵のターン開始時に予約され、プレイヤーの次のターン開始時（手札を引いた後）に敵自身のデッキへ作用します（「敵のデッキに加える」だけは、プレイヤーの山札に加わります）。</p>
       <div class="field"><label>操作内容</label>${sel('type', STATUS_CARDOP_TYPES, op.type)}</div>
       ${isGen
         ? `<div class="field"><label>生成元プール</label>${sel('genPool', genPoolOptionsFor(op.type), op.genPool)}</div>
            ${op.type==='generateToEnemyDeck' ? `<div class="ev-eff-grid"><div><label>敵のデッキでの重み（大きいほど選ばれやすい）</label><input type="number" ${opAt} data-f="deckWeight" data-num="1" value="${op.deckWeight||1}" min="1" max="99"></div></div>
-           <p class="ev-hint">敵のデッキ一覧に、この戦闘の間だけ追加されます。プレイヤーがこの状態を持っている間、ターン開始時に発動します。今の予告は変わらず、次の次の行動から反映されます。</p>` : ''}`
+           <p class="ev-hint">敵のデッキ一覧に、この戦闘の間だけ追加されます（敵がこの状態を持っている間は、逆にプレイヤーの山札に加わります）。ターン開始時に発動します。今の予告は変わらず、次の次の行動から反映されます。</p>` : ''}`
         : `<div class="field"><label>対象の山</label>${sel('fromPile', PILE_OPTIONS, op.fromPile)}</div>`}
       <div class="field"><label>枚数の決め方</label><select ${opAt} data-f="countMode">
         <option value="fixed" ${op.countMode==='fixed'?'selected':''}>固定数</option>
@@ -2873,7 +2995,7 @@ function openStatusModal(status, isNew){
       <div id="sm-effects"></div>
       <div class="ev-add"><select id="sm-addkind">${addOptions.map(o=>`<option value="${o.key}">${escapeHtml(o.label)}</option>`).join('')}</select><button type="button" id="sm-addbtn">＋ 効果を追加</button></div>
       <div class="ev-add" style="margin-top:6px;"><button type="button" id="sm-addop" style="flex:1;">＋ カード操作を追加（手札を捨てさせる・カードを生成する など）</button></div>
-      <p class="hint">カード操作は、プレイヤーがこの状態を持っている間、自分のターン開始時（手札を引いた後）にプレイヤーのデッキへ行われます。いくつでも追加できます。</p>
+      <p class="hint">カード操作は、この状態を持っている側のデッキへ、ターン開始時（手札を引いた後）に行われます。敵が持つ場合は視点が反転し、敵自身のデッキへ作用します（「敵のデッキに加える」だけはプレイヤーの山札）。いくつでも追加できます。</p>
       <div class="modal-actions">
         <button class="ghost" id="sm-cancel">キャンセル</button>
         <button class="primary" id="sm-save">保存する</button>
@@ -3147,7 +3269,7 @@ function openCardModal(card, isNew){
       <div class="checkbox-field"><input type="checkbox" id="m-retain" ${c.retain?'checked':''}><label for="m-retain">ターンをまたいで手札に残る（保持）</label></div>
       <div class="section-label">カード操作（発展効果）</div>
       <div class="checkbox-field"><input type="checkbox" id="m-op-enabled" ${c.cardOp&&c.cardOp.enabled?'checked':''}><label for="m-op-enabled">カード操作を有効にする</label></div>
-      <p class="hint" style="margin-bottom:8px;">このカードを敵が使った場合、カード操作はプレイヤーのデッキへの妨害だけが有効です（捨て札に移動・山札に加える・消滅・カード生成（手札／山札）・効果付与（マイナス値で弱体化））。相手のターン開始時、手札を引いた後に発動し、予告にも表示されます。それ以外の操作は敵が使うと無視されます。プレイヤーが使った場合は、自分のデッキへの操作として動きます。</p>
+      <p class="hint" style="margin-bottom:8px;">このカードを敵が使った場合、視点が反転します。「敵のデッキに加える」はプレイヤーの山札に加わり（この戦闘中のみ）、それ以外の操作は敵自身のデッキに作用します（対象の山は無視。「捨て札に移動」「消滅」はデッキから取り除く（最後の1枚は残る）／「手札・山札に移動」は効果なし／強化・複製・効果付与・生成は敵のデッキの内容を変える）。「プレイヤーが選ぶ」はランダムになります。プレイヤーのターン開始時、手札を引いた後に発動し、予告にも表示されます。プレイヤーが使った場合は、従来どおり自分のデッキ／敵のデッキへの操作です。</p>
       <div id="op-config" style="${c.cardOp&&c.cardOp.enabled?'':'display:none;'} padding:10px; background:var(--bg-void); border:1px solid var(--line); border-radius:4px; margin-bottom:12px;">
         <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">操作内容</div>
         <select id="m-op-type" style="margin-bottom:8px; width:100%;">
@@ -3888,12 +4010,12 @@ function runEnemyTurn(){
     if(move) resolveEnemyMoveEffects(r, e, move);
     // ダメージを受けたときのトリガー（カード操作で選択画面が出る場合は、選び終わってから続きへ）
     fireDamageTriggers(r, ()=>{
-      if(move && move.cardOp && move.cardOp.enabled && ENEMY_CARDOP_TYPES.includes(move.cardOp.type) && r.player.hp>0){
-        // Resolved at the start of the player's next turn, once the new hand is drawn.
+      if(move && move.cardOp && move.cardOp.enabled && r.player.hp>0){
+        // Resolved at the start of the player's next turn, once the new hand is drawn (視点反転: resolveEnemyCardOp).
         const op = {...move.cardOp, fromEnemy:true};
-        if(GENERATE_TYPES.includes(op.type) && op.countMode==='choose') op.countMode = 'fixed'; // the player must not pick what gets generated
         queueTurnStartOp(r, op, `${e.name}の「${move.name}」`);
-        r.pendingTurnStartOps[r.pendingTurnStartOps.length-1].label = `${e.name}の「${move.name}」: ${enemyOpText(op)}`;
+        const t = enemyOpText(op);
+        r.pendingTurnStartOps[r.pendingTurnStartOps.length-1].label = `${e.name}の「${move.name}」${t?': '+t:''}`;
       }
       if(enemyFallen()){ onEnemyDefeated(); return; }
       if(playerFallen()){ onPlayerDefeated(); return; }
@@ -4054,7 +4176,7 @@ function intentLabel(e){
       parts.push(`${st.emoji||''}${st.name}${amt}`);
     }
   });
-  if(c.cardOp && c.cardOp.enabled && ENEMY_CARDOP_TYPES.includes(c.cardOp.type)){
+  if(c.cardOp && c.cardOp.enabled){
     const t = enemyOpText(c.cardOp);
     if(t) parts.push(t);
   }
