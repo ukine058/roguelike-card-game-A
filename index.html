@@ -687,6 +687,11 @@ function upgradedCardView(base){
       const ppDelta = (upg.scalePP && upg.scalePP[def.key]) || 0;
       up.scales[def.key] = {...s, perPoint: s.perPoint + ppDelta};
     }
+    // 「両方に付与」の相手への量にも、強化時の変化を反映する
+    if(def._statusId && base['csT_'+def._statusId]==='both'){
+      const xk = 'csX_'+def._statusId;
+      up[xk] = Math.max(0, (base[xk]|0) + (upg[xk]||0));
+    }
   });
   return up;
 }
@@ -719,7 +724,8 @@ function cardDescription(c){
   const parts = [];
   allEffectFieldDefs().forEach(def=>{
     const base = c[def.key]!==undefined ? c[def.key] : (def.default||0);
-    const show = def.showIf ? def.showIf(base) : base>0;
+    let show = def.showIf ? def.showIf(base) : base>0;
+    if(def._statusId && c['csT_'+def._statusId]==='both' && (c['csX_'+def._statusId]|0)>0) show = true;
     if(show) parts.push(def.desc(base, c));
     const scale = c.scales && c.scales[def.key];
     if(scale && scale.source && scale.source!=='none' && scale.perPoint){
@@ -1678,10 +1684,10 @@ function runTurnStartCardOps(r, done){
 // description, upgradedCardView, relicFieldDefsFor) works for custom statuses for free
 // once it walks allEffectFieldDefs() instead.
 // 状態の付与先。カード側の設定（csT_<状態ID>）があればそれを優先し、なければ状態の「標準の付与先」を使う。
-// 戻り値は 'self'（行動する本人）か 'opponent'（相手）。
+// 戻り値は 'self'（行動する本人）、'opponent'（相手）、'both'（両方。基本値＝自分への量、csX_<状態ID>＝相手への量）。
 function csGrantSide(obj, st){
   const t = obj && obj['csT_'+st.id];
-  if(t==='self' || t==='opponent') return t;
+  if(t==='self' || t==='opponent' || t==='both') return t;
   return st.target==='opponent' ? 'opponent' : 'self';
 }
 function customStatusFieldDefs(){
@@ -1689,7 +1695,15 @@ function customStatusFieldDefs(){
     key: 'cs_'+st.id,
     label: `${st.emoji?st.emoji+' ':''}${st.name} 付与`,
     max: 99,
-    desc: (v, obj)=> `${st.emoji?st.emoji+' ':''}${st.name}+${v}${csGrantSide(obj, st)==='opponent'?'（相手に）':'（自分に）'}`,
+    desc: (v, obj)=>{
+      const nm = `${st.emoji?st.emoji+' ':''}${st.name}`;
+      const side = csGrantSide(obj, st);
+      if(side==='both'){
+        const x = Math.max(0, (obj && obj['csX_'+st.id])|0);
+        return [v>0 ? `${nm}+${v}（自分に）` : '', x>0 ? `${nm}+${x}（相手に）` : ''].filter(Boolean).join('／');
+      }
+      return `${nm}+${v}${side==='opponent'?'（相手に）':'（自分に）'}`;
+    },
     _statusId: st.id,
   }));
 }
@@ -1744,11 +1758,17 @@ function resolveEnemyMoveEffects(r, e, c){
     if(poison>0){ p.poison += poison; pushLog(`${e.name}の効果で毒+${poison}。`); }
     customStatusFieldDefs().forEach(def=>{
       const amt = Math.max(0, c[def.key]||0);
-      if(amt<=0) return;
       const stDef = (S.customStatuses||[]).find(s=>s.id===def._statusId);
       if(!stDef) return;
-      const target = csGrantSide(c, stDef)==='opponent' ? p : e;
-      addCustomStatusStacks(target, stDef.id, amt);
+      const side = csGrantSide(c, stDef);
+      const extra = side==='both' ? Math.max(0, (c['csX_'+stDef.id])|0) : 0;
+      if(amt<=0 && extra<=0) return;
+      if(side==='both'){
+        if(amt>0) addCustomStatusStacks(e, stDef.id, amt);       // 基本値＝行動する敵本人への量
+        if(extra>0) addCustomStatusStacks(p, stDef.id, extra);   // 相手（プレイヤー）への量
+      } else {
+        addCustomStatusStacks(side==='opponent' ? p : e, stDef.id, amt);
+      }
       pushLog(`${e.name}: ${def.desc(amt, c)}`);
     });
   }
@@ -2176,11 +2196,17 @@ function applyEffectValues(r, c){
 
   customStatusFieldDefs().forEach(def=>{
     const amt = Math.max(0, (c[def.key]||0) + scaleBonus(c, def.key));
-    if(amt<=0) return;
     const st = (S.customStatuses||[]).find(s=>s.id===def._statusId);
     if(!st) return;
-    const target = csGrantSide(c, st)==='opponent' ? r.enemy : r.player;
-    addCustomStatusStacks(target, st.id, amt);
+    const side = csGrantSide(c, st);
+    const extra = side==='both' ? Math.max(0, (c['csX_'+st.id])|0) : 0;
+    if(amt<=0 && extra<=0) return;
+    if(side==='both'){
+      if(amt>0) addCustomStatusStacks(r.player, st.id, amt);
+      if(extra>0) addCustomStatusStacks(r.enemy, st.id, extra);
+    } else {
+      addCustomStatusStacks(side==='opponent' ? r.enemy : r.player, st.id, amt);
+    }
     pushLog(`${c.name}: ${def.desc(amt, c)}`);
   });
 }
@@ -2619,7 +2645,7 @@ function renderRelicEditor(){
 function customStatusUsage(statusId){
   const key = 'cs_'+statusId;
   const cardIds = S.cards.filter(c=>
-    (c[key]) || (c.scales && c.scales[key]) || (c.upgrades && (c.upgrades[key] || (c.upgrades.scalePP && c.upgrades.scalePP[key])))
+    (c[key]) || (c['csX_'+statusId]) || (c.scales && c.scales[key]) || (c.upgrades && (c.upgrades[key] || (c.upgrades.scalePP && c.upgrades.scalePP[key])))
     || (c.cardOp && c.cardOp.enabled && c.cardOp.type==='grantBuff' && c.cardOp.buffField===key)
     || Object.values(c.scales||{}).some(sc=> sc && (sc.source==='csSelf:'+statusId || sc.source==='csEnemy:'+statusId))
   ).map(c=>c.id);
@@ -2629,7 +2655,7 @@ function customStatusUsage(statusId){
 function stripCustomStatusRefs(statusId){
   const key = 'cs_'+statusId;
   S.cards.forEach(c=>{
-    delete c[key];
+    delete c[key]; delete c['csT_'+statusId]; delete c['csX_'+statusId];
     if(c.scales){
       delete c.scales[key];
       Object.keys(c.scales).forEach(f=>{ const sc = c.scales[f]; if(sc && (sc.source==='csSelf:'+statusId || sc.source==='csEnemy:'+statusId)) delete c.scales[f]; });
@@ -3013,14 +3039,25 @@ function openCardModal(card, isNew){
         <label>${def.label}</label>
         ${def._statusId ? (()=>{
           const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
-          const cur = c['csT_'+def._statusId]==='self' || c['csT_'+def._statusId]==='opponent' ? c['csT_'+def._statusId] : 'default';
+          const cur = ['self','opponent','both'].includes(c['csT_'+def._statusId]) ? c['csT_'+def._statusId] : 'default';
           const std = st && st.target==='opponent' ? '相手' : '自分';
           return `<div style="margin-bottom:4px;"><span style="font-size:10px; color:var(--parchment-dim);">付与先：</span>
             <select id="m-cst-${def._statusId}" style="width:auto; display:inline-block;">
               <option value="default" ${cur==='default'?'selected':''}>状態の標準（${std}）</option>
               <option value="self" ${cur==='self'?'selected':''}>自分に付与</option>
               <option value="opponent" ${cur==='opponent'?'selected':''}>相手に付与</option>
-            </select></div>`;
+              <option value="both" ${cur==='both'?'selected':''}>自分と相手の両方に付与（量を別々に設定）</option>
+            </select>
+            <span class="cs-both-note" data-st="${def._statusId}" style="font-size:10px; color:var(--parchment-dim); ${cur==='both'?'':'display:none;'}">下の基本値＝自分への量</span></div>
+          <div class="cs-both-box" data-st="${def._statusId}" style="margin-bottom:6px; ${cur==='both'?'':'display:none;'}">
+            <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">相手への量（参照増減は、上の基本値＝自分への量にだけ働きます）</div>
+            <div style="display:flex; gap:6px;">
+              <div><div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">基本値</div>
+                <input type="number" id="m-csx-${def._statusId}" value="${c['csX_'+def._statusId]|0}" min="0" max="99" style="width:100px;"></div>
+              <div><div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">↑強化時+/-</div>
+                <input type="number" id="m-upg-csx-${def._statusId}" value="${((c.upgrades||{})['csX_'+def._statusId])||0}" min="-99" max="99" style="width:100px;"></div>
+            </div>
+          </div>`;
         })() : ''}
         <div style="display:flex; gap:6px; align-items:flex-end;">
           <div style="flex:1;">
@@ -3140,6 +3177,12 @@ function openCardModal(card, isNew){
       btn.textContent = showing ? '+参照増減' : '増減設定を編集';
     };
   });
+  qsa('select[id^="m-cst-"]',overlay).forEach(sel=>{
+    sel.onchange = ()=>{
+      const id = sel.id.slice(6), both = sel.value==='both';
+      qsa(`.cs-both-box[data-st="${id}"], .cs-both-note[data-st="${id}"]`,overlay).forEach(el=> el.style.display = both ? '' : 'none');
+    };
+  });
   qs('#m-triggeron',overlay).onchange = ()=>{
     const d = qs('#m-triggeron',overlay).value==='damaged';
     qs('#trigger-cardused-fields',overlay).style.display = d ? 'none' : 'block';
@@ -3190,7 +3233,12 @@ function openCardModal(card, isNew){
       updated[def.key] = clampInt(qs(`#m-${def.key}`,overlay).value,min,def.max,dflt);
       if(def._statusId){
         const tv = qs(`#m-cst-${def._statusId}`,overlay);
-        if(tv && (tv.value==='self' || tv.value==='opponent')) updated['csT_'+def._statusId] = tv.value;
+        if(tv && ['self','opponent','both'].includes(tv.value)) updated['csT_'+def._statusId] = tv.value;
+        if(tv && tv.value==='both'){
+          updated['csX_'+def._statusId] = clampInt(qs(`#m-csx-${def._statusId}`,overlay).value,0,99,0);
+          const ux = clampInt(qs(`#m-upg-csx-${def._statusId}`,overlay).value,-99,99,0);
+          if(ux) updated.upgrades['csX_'+def._statusId] = ux;
+        }
       }
       updated.upgrades[def.key] = clampInt(qs(`#m-upg-${def.key}`,overlay).value,-99,99,0);
       const ppDeltaEl = qs(`#m-scaleppdelta-${def.key}`,overlay);
@@ -3941,9 +3989,15 @@ function intentLabel(e){
   if(c.regen>0) parts.push(`再生${c.regen}`);
   customStatusFieldDefs().forEach(def=>{
     const amt = c[def.key];
-    if(amt>0){
-      const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
-      if(st) parts.push(`${st.emoji||''}${st.name}${amt}`);
+    const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
+    if(!st) return;
+    const both = csGrantSide(c, st)==='both';
+    const extra = both ? ((c['csX_'+st.id])|0) : 0;
+    if(both){
+      if(amt>0) parts.push(`${st.emoji||''}${st.name}${amt}（自分に）`);
+      if(extra>0) parts.push(`${st.emoji||''}${st.name}${extra}（相手に）`);
+    } else if(amt>0){
+      parts.push(`${st.emoji||''}${st.name}${amt}`);
     }
   });
   if(c.cardOp && c.cardOp.enabled && ENEMY_CARDOP_TYPES.includes(c.cardOp.type)){
