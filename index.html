@@ -225,6 +225,16 @@
   .ev-eff-grid > div{ flex:1; min-width:120px; }
   .ev-add{ display:flex; gap:8px; margin-top:8px; }
   .ev-add select{ flex:1; }
+  /* ---------- Reorder mode ---------- */
+  .topbar-btns{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  #btn-reorder.active{ background:var(--gold); color:#1a130a; border-color:var(--gold); }
+  .reorder-on .edit-actions, .reorder-on .add-card-tile{ display:none !important; }
+  .reorder-on .editor-card-wrap{ cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:10px; outline:1px dashed var(--line); outline-offset:4px; }
+  .reorder-on .editor-card-wrap > *{ pointer-events:none; }
+  .reorder-on .card:hover{ transform:none; box-shadow:0 4px 10px rgba(0,0,0,.4); }
+  .reorder-on .editor-card-wrap.dragging{ opacity:.55; outline:2px solid var(--gold); cursor:grabbing; }
+  .reorder-hint{ display:none; font-size:12px; color:var(--gold); margin:0 0 10px; }
+  .reorder-on .reorder-hint{ display:block; }
   ::-webkit-scrollbar{ height:8px; width:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
 </style>
@@ -820,6 +830,7 @@ function app(){ return qs('#app'); }
 /* ============================= HOME SCREEN ============================= */
 
 function renderHome(){
+  reorderMode = false;
   app().innerHTML = `
   <div class="screen">
     <div class="home-hero">
@@ -2572,6 +2583,99 @@ function fireMatchingTriggers(r, playedCard, done){
 }
 
 
+/* ============================= EDITOR TOOLS (reorder / duplicate) ============================= */
+
+let reorderMode = false;
+// ids = 新しい並び順（同じグループ内のID）。リスト全体の中で、そのグループが占めていた位置にだけ反映する。
+function reorderSubset(list, ids){
+  const set = new Set(ids);
+  const slots = [];
+  list.forEach((x,i)=>{ if(set.has(x.id)) slots.push(i); });
+  if(slots.length!==ids.length) return list;
+  const byId = new Map(list.map(x=>[x.id,x]));
+  const out = list.slice();
+  slots.forEach((pos,k)=>{ out[pos] = byId.get(ids[k]); });
+  return out;
+}
+function bindReorderGrid(grid, onDrop){
+  const wraps = ()=> Array.from(grid.children).filter(n=>n.classList.contains('editor-card-wrap'));
+  wraps().forEach(w=>{
+    w.addEventListener('pointerdown', ev=>{
+      if(ev.pointerType==='mouse' && ev.button!==0) return;
+      ev.preventDefault();
+      try{ w.setPointerCapture(ev.pointerId); }catch(e){}
+      w.classList.add('dragging');
+      let moved = false;
+      const onMove = e=>{
+        moved = true;
+        if(e.clientY<70) window.scrollBy(0,-16);
+        else if(e.clientY>window.innerHeight-70) window.scrollBy(0,16);
+        const under = document.elementsFromPoint(e.clientX, e.clientY)
+          .find(n=> n!==w && n.classList && n.classList.contains('editor-card-wrap') && n.parentNode===grid);
+        if(!under) return;
+        // ドラッグ中の要素 w 自体はDOMから外さない（外すとポインタ追跡が切れて、1回で止まってしまう）。
+        // 代わりに、間にある要素を w の反対側へ動かして、w が under を越えた並びにする。
+        const kids = wraps();
+        const a = kids.indexOf(w), b = kids.indexOf(under);
+        if(a<b){
+          kids.slice(a+1, b+1).forEach(n=> grid.insertBefore(n, w));
+        } else {
+          for(let i=a-1;i>=b;i--) grid.insertBefore(kids[i], w.nextSibling);
+        }
+      };
+      const end = ()=>{
+        w.removeEventListener('pointermove', onMove);
+        w.removeEventListener('pointerup', end);
+        w.removeEventListener('pointercancel', end);
+        w.classList.remove('dragging');
+        try{ w.releasePointerCapture(ev.pointerId); }catch(e){}
+        if(moved) onDrop(wraps().map(x=>x.dataset.id));
+      };
+      w.addEventListener('pointermove', onMove);
+      w.addEventListener('pointerup', end);
+      w.addEventListener('pointercancel', end);
+    });
+  });
+}
+// getList/setList: そのデータの配列を読み書きする（setListは保存まで行う）
+// rerender: 画面の描き直し／dup(copy): 複製データを整える（新しいIDなどを付けて返す）
+function bindEditorTools(o){
+  const screen = qs('.screen');
+  if(screen){
+    screen.classList.toggle('reorder-on', reorderMode);
+    if(!qs('.reorder-hint', screen)){
+      const hint = el('<p class="reorder-hint">並べ替えモード：カードをドラッグして順番を入れ替えます（同じ区分の中で移動できます）。</p>');
+      const tb = qs('.topbar', screen);
+      if(tb) tb.insertAdjacentElement('afterend', hint);
+    }
+  }
+  const btn = qs('#btn-reorder');
+  if(btn){
+    btn.textContent = reorderMode ? '並べ替えを終了' : '並べ替え';
+    btn.classList.toggle('active', reorderMode);
+    btn.onclick = ()=>{ reorderMode = !reorderMode; o.rerender(); };
+  }
+  qsa('.dup-btn').forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.closest('.editor-card-wrap').dataset.id;
+      const list = o.getList();
+      const i = list.findIndex(x=>x.id===id);
+      if(i<0) return;
+      const copy = o.dup(JSON.parse(JSON.stringify(list[i])));
+      const out = list.slice();
+      out.splice(i+1, 0, copy);
+      o.setList(out);
+      o.rerender();
+    };
+  });
+  if(reorderMode){
+    qsa('.editor-grid').forEach(grid=> bindReorderGrid(grid, ids=>{
+      o.setList(reorderSubset(o.getList(), ids));
+      o.rerender();
+    }));
+  }
+}
+
 /* ============================= CARD EDITOR SCREEN ============================= */
 
 function renderEditor(){
@@ -2581,7 +2685,7 @@ function renderEditor(){
   <div class="screen">
     <div class="topbar">
       <div><p class="eyebrow">CARD EDITOR</p><h2>カードを編集する</h2></div>
-      <button class="ghost" id="btn-back">← ホームへ</button>
+      <div class="topbar-btns"><button class="ghost" id="btn-reorder">並べ替え</button><button class="ghost" id="btn-back">← ホームへ</button></div>
     </div>`;
   html += `<div class="tab-row">${groups.map(([rar,label])=>`<button class="tab-btn ${S.cardEditorTab===rar?'active':''}" data-tab="${rar}">${label}（${S.cards.filter(c=>c.rarity===rar).length}）</button>`).join('')}</div>`;
   groups.filter(g=>g[0]===S.cardEditorTab).forEach(([rar,label])=>{
@@ -2591,7 +2695,7 @@ function renderEditor(){
       html += `<div class="editor-card-wrap" data-id="${c.id}">
         ${renderCardHTML(c,{mini:true})}
         <div class="edit-actions">
-          <button class="edit-btn">編集</button>
+          <button class="edit-btn">編集</button><button class="dup-btn">複製</button>
           <button class="del-btn">削除</button>
         </div>
       </div>`;
@@ -2603,6 +2707,7 @@ function renderEditor(){
   });
   html += `</div>`;
   app().innerHTML = html;
+  bindEditorTools({getList:()=>S.cards, setList:v=>{ S.cards=v; saveCards(v); }, rerender:renderEditor, dup:c=>{ c.id=newId(); c.name+='（コピー）'; c.startingCount=0; return c; }});
 
   qs('#btn-back').onclick = ()=>{ S.screen='home'; renderHome(); };
   qsa('.tab-btn').forEach(b=> b.onclick = ()=>{ S.cardEditorTab = b.dataset.tab; renderEditor(); });
@@ -2641,7 +2746,7 @@ function renderEnemyEditor(){
   <div class="screen">
     <div class="topbar">
       <div><p class="eyebrow">ENEMY EDITOR</p><h2>敵を編集する</h2></div>
-      <button class="ghost" id="btn-back">← ホームへ</button>
+      <div class="topbar-btns"><button class="ghost" id="btn-reorder">並べ替え</button><button class="ghost" id="btn-back">← ホームへ</button></div>
     </div>
     <p class="hint">敵の行動は、カードライブラリのカードをそのまま「所持デッキ」として持たせて表現します（例：ストライクを入れれば6ダメージ攻撃になります）。</p>`;
   groups.forEach(([cat,label])=>{
@@ -2655,7 +2760,7 @@ function renderEnemyEditor(){
           <div class="desc">HP${en.baseHp}・重み${en.weight}・デッキ${en.deck.length}種</div>
         </div>
         <div class="edit-actions">
-          <button class="edit-enemy-btn">編集</button>
+          <button class="edit-enemy-btn">編集</button><button class="dup-btn">複製</button>
           <button class="del-enemy-btn">削除</button>
         </div>
       </div>`;
@@ -2664,6 +2769,7 @@ function renderEnemyEditor(){
   });
   html += `</div>`;
   app().innerHTML = html;
+  bindEditorTools({getList:()=>S.enemies, setList:v=>{ S.enemies=v; saveEnemies(v); }, rerender:renderEnemyEditor, dup:e=>{ e.id=newId(); e.name+='（コピー）'; return e; }});
 
   qs('#btn-back').onclick = ()=>{ S.screen='home'; renderHome(); };
   qsa('.edit-enemy-btn').forEach(btn=>{
@@ -3002,7 +3108,7 @@ function renderRelicEditor(){
   <div class="screen">
     <div class="topbar">
       <div><p class="eyebrow">RELIC EDITOR</p><h2>レリックを編集する</h2></div>
-      <button class="ghost" id="btn-back">← ホームへ</button>
+      <div class="topbar-btns"><button class="ghost" id="btn-reorder">並べ替え</button><button class="ghost" id="btn-back">← ホームへ</button></div>
     </div>`;
   groups.forEach(([rar,label])=>{
     const relics = S.relics.filter(rel=>rel.rarity===rar);
@@ -3015,7 +3121,7 @@ function renderRelicEditor(){
           <div class="desc">${relicDescription(rel)}${rel.startingCount>0?`<br>（開始時 ×${rel.startingCount}）`:''}</div>
         </div>
         <div class="edit-actions">
-          <button class="edit-relic-btn">編集</button>
+          <button class="edit-relic-btn">編集</button><button class="dup-btn">複製</button>
           <button class="del-relic-btn">削除</button>
         </div>
       </div>`;
@@ -3025,6 +3131,7 @@ function renderRelicEditor(){
   });
   html += `</div>`;
   app().innerHTML = html;
+  bindEditorTools({getList:()=>S.relics, setList:v=>{ S.relics=v; saveRelics(v); }, rerender:renderRelicEditor, dup:x=>{ x.id=newId(); x.name+='（コピー）'; x.startingCount=0; return x; }});
 
   qs('#btn-back').onclick = ()=>{ S.screen='home'; renderHome(); };
   qsa('.edit-relic-btn').forEach(btn=>{
@@ -3082,7 +3189,7 @@ function renderStatusEditor(){
   <div class="screen">
     <div class="topbar">
       <div><p class="eyebrow">STATUS EDITOR</p><h2>カスタム状態を編集する</h2></div>
-      <button class="ghost" id="btn-back">← ホームへ</button>
+      <div class="topbar-btns"><button class="ghost" id="btn-reorder">並べ替え</button><button class="ghost" id="btn-back">← ホームへ</button></div>
     </div>
     <p class="hint">カードやレリックの効果一覧に「(絵文字) 名前 付与」という項目として並びます。既存の強化・弱体などの組み込みステータスはここには出ません。</p>
     <div class="section-label">状態一覧（${list.length}種）</div>
@@ -3096,13 +3203,14 @@ function renderStatusEditor(){
         <div class="desc">標準の付与先：${st.target==='opponent'?'相手':'自分'}。${kindLabel}${(st.tags&&st.tags.length)?`<br>タグ: ${st.tags.map(escapeHtml).join(', ')}`:''}</div>
       </div>
       <div class="edit-actions">
-        <button class="edit-status-btn">編集</button>
+        <button class="edit-status-btn">編集</button><button class="dup-btn">複製</button>
         <button class="del-status-btn">削除</button>
       </div>
     </div>`;
   });
   html += `<div class="add-card-tile" id="add-status-tile">＋</div></div></div>`;
   app().innerHTML = html;
+  bindEditorTools({getList:()=>S.customStatuses, setList:v=>{ S.customStatuses=v; saveCustomStatuses(v); }, rerender:renderStatusEditor, dup:x=>{ x.id=newId(); x.name+='（コピー）'; return x; }});
 
   qs('#btn-back').onclick = ()=>{ S.screen='home'; renderHome(); };
   qsa('.edit-status-btn').forEach(btn=>{
@@ -5420,7 +5528,7 @@ function renderEventEditor(){
   <div class="screen">
     <div class="topbar">
       <div><p class="eyebrow">EVENT EDITOR</p><h2>イベントを編集する</h2></div>
-      <button class="ghost" id="btn-back">← ホームへ</button>
+      <div class="topbar-btns"><button class="ghost" id="btn-reorder">並べ替え</button><button class="ghost" id="btn-back">← ホームへ</button></div>
     </div>
     <p class="ev-hint">イベントは、探索の途中で休憩所・ショップと並んでランダムに登場します。</p>
     <div class="editor-grid">`;
@@ -5432,13 +5540,14 @@ function renderEventEditor(){
         <div class="desc">選択肢${ev.slots}枠・候補${ev.choices.length}件・重み${ev.weight}</div>
       </div>
       <div class="edit-actions">
-        <button class="edit-event-btn">編集</button>
+        <button class="edit-event-btn">編集</button><button class="dup-btn">複製</button>
         <button class="del-event-btn">削除</button>
       </div>
     </div>`;
   });
   html += `<div class="add-card-tile" id="btn-add-event">＋</div></div></div>`;
   app().innerHTML = html;
+  bindEditorTools({getList:()=>S.events, setList:v=>{ S.events=v; saveEvents(v); }, rerender:renderEventEditor, dup:x=>{ x.id=newId(); x.title+='（コピー）'; return x; }});
   qs('#btn-back').onclick = ()=>{ S.screen='home'; renderHome(); };
   qsa('.edit-event-btn').forEach(btn=>{
     btn.onclick = ()=>{
