@@ -936,10 +936,16 @@ function normalizeStatusEffect(x){
   const e = {
     kind: x.kind,
     magnitudeMode: x.magnitudeMode==='perStack' ? 'perStack' : 'fixed',
-    magnitudeValue: clampInt(x.magnitudeValue,-999,999,1),
+    magnitudeValue: (x.kind==='damageDealtFlat' || x.kind==='damageTakenFlat')
+      ? (Number.isFinite(parseFloat(x.magnitudeValue)) ? Math.max(-999, Math.min(999, Math.round(parseFloat(x.magnitudeValue)*1000)/1000)) : 1)
+      : clampInt(x.magnitudeValue,-999,999,1),
   };
   if(x.kind==='cardOp') e.op = normalizeStatusOp(x.op);
-  if(x.kind==='revive') e.reviveUnit = x.reviveUnit==='percent' ? 'percent' : 'fixed';
+  if(x.kind==='revive'){
+    e.reviveUnit = x.reviveUnit==='percent' ? 'percent' : 'fixed';
+    e.reviveGrants = (Array.isArray(x.reviveGrants) ? x.reviveGrants : []).filter(g=> g && typeof g.statusId==='string')
+      .map(g=>({statusId:g.statusId, stacks:clampInt(g.stacks,1,99,1)}));
+  }
   return e;
 }
 function normalizeCustomStatus(st){
@@ -1613,8 +1619,11 @@ function addCustomStatusStacks(entity, statusId, delta){
 // 'fixed': the configured value applies as-is, regardless of stack count (stacks just
 // count down as a duration, like weak/vulnerable). 'perStack': the configured value is
 // a per-stack coefficient, so the total scales with the current stack count (like poison).
+const DECIMAL_MAG_KINDS = ['damageDealtFlat','damageTakenFlat'];
 function customStatusMagnitude(status, stacks){
-  return status.magnitudeMode==='perStack' ? status.magnitudeValue*stacks : status.magnitudeValue;
+  const v = status.magnitudeMode==='perStack' ? status.magnitudeValue*stacks : status.magnitudeValue;
+  // ダメージ固定値加算は、係数に小数を使える。計算結果は切り捨て（浮動小数の誤差を丸めてから）
+  return DECIMAL_MAG_KINDS.includes(status.kind) ? Math.floor(Math.round(v*1e6)/1e6) : v;
 }
 // Every effect of the given kind, across all custom statuses the entity currently holds.
 function customEffectsOn(entity, kind){
@@ -1651,6 +1660,12 @@ function reviveIfAble(entity, name){
     entity.hp = Math.max(1, Math.min(entity.maxHp, Math.round(hp)));
     addCustomStatusStacks(entity, st.id, -1);
     pushLog(`${st.emoji||''}${st.name}の効果で${name||'倒れかけた者'}が復活した！（HP${entity.hp}）`);
+    (eff.reviveGrants||[]).forEach(g=>{
+      const gs = (S.customStatuses||[]).find(x=>x.id===g.statusId);
+      if(!gs || !(g.stacks>0)) return;
+      addCustomStatusStacks(entity, gs.id, g.stacks);
+      pushLog(`${name||'倒れかけた者'}は${gs.emoji||''}${gs.name}+${g.stacks}を得た。`);
+    });
     return true;
   }
   return false;
@@ -3144,7 +3159,8 @@ function statusEffectFormHTML(eff, i){
     <div><label>効果量の決め方</label><select ${at} data-f="magnitudeMode">
       <option value="fixed" ${eff.magnitudeMode==='fixed'?'selected':''}>固定値</option>
       <option value="perStack" ${eff.magnitudeMode==='perStack'?'selected':''}>スタック数×係数</option></select></div>
-    <div><label>${title}</label><input type="number" ${at} data-f="magnitudeValue" data-num="1" value="${eff.magnitudeValue}" min="-999" max="999"></div>
+    <div><label>${title}</label><input type="number" ${at} data-f="magnitudeValue" data-num="${DECIMAL_MAG_KINDS.includes(eff.kind)?'float':'1'}" ${DECIMAL_MAG_KINDS.includes(eff.kind)?'step="0.1"':''} value="${eff.magnitudeValue}" min="-999" max="999"></div>
+    ${DECIMAL_MAG_KINDS.includes(eff.kind) ? `<p class="hint">スタック数×係数のときは、係数に小数（例: 0.5）も使えます。計算結果は切り捨てになります（例: 0.5×3スタック＝1）。</p>` : ''}
   </div>`;
   let body = '';
   if(eff.kind==='skipTurn'){
@@ -3154,7 +3170,15 @@ function statusEffectFormHTML(eff, i){
       <div class="field"><label>回復量の単位</label><select ${at} data-f="reviveUnit">
         <option value="fixed" ${eff.reviveUnit!=='percent'?'selected':''}>HPの固定値</option>
         <option value="percent" ${eff.reviveUnit==='percent'?'selected':''}>最大HPの％</option></select></div>
-      <p class="hint">プレイヤーでも敵でも、この状態を持っている者のHPが0になると発動します。発動するたびにスタックが1減ります（スタック2なら2回復活できます）。</p>`;
+      <p class="hint">プレイヤーでも敵でも、この状態を持っている者のHPが0になると発動します。発動するたびにスタックが1減ります（スタック2なら2回復活できます）。</p>
+      <div class="field"><label>復活時に付与する状態（復活した本人に付与）</label>
+        ${(eff.reviveGrants||[]).map((g,j)=>{ const gs=(S.customStatuses||[]).find(x=>x.id===g.statusId);
+          return `<div class="ev-add" style="margin-bottom:4px;"><span style="flex:1;">${gs ? escapeHtml((gs.emoji?gs.emoji+' ':'')+gs.name) : '（削除された状態）'}</span>
+            <input type="number" data-gf="stacks" data-i="${i}" data-j="${j}" value="${g.stacks}" min="1" max="99" style="width:70px;">
+            <button type="button" class="ghost" data-delgrant="${i}:${j}">削除</button></div>`; }).join('')}
+        <div class="ev-add"><select data-grantpick="${i}">${(S.customStatuses||[]).map(x=>`<option value="${escapeHtml(x.id)}">${escapeHtml((x.emoji?x.emoji+' ':'')+x.name)}</option>`).join('')}</select>
+          <button type="button" data-addgrant="${i}">＋ 追加</button></div>
+      </div>`;
   } else if(eff.kind!=='cardOp'){
     body = magHTML('効果量（固定値、または1スタックあたりの係数）');
   } else {
@@ -3234,15 +3258,31 @@ function openStatusModal(status, isNew){
     const eff = st.effects[parseInt(t.dataset.i,10)];
     if(!eff) return;
     const obj = t.dataset.op ? eff.op : eff;
-    if(t.dataset.num){ const v = parseInt(t.value,10); obj[f] = isNaN(v) ? 0 : v; }
+    if(t.dataset.num){ const v = t.dataset.num==='float' ? parseFloat(t.value) : parseInt(t.value,10); obj[f] = isNaN(v) ? 0 : v; }
     else obj[f] = t.value;
   }
-  box.addEventListener('input', e=> sync(e.target));
+  box.addEventListener('input', e=>{
+    if(e.target.dataset && e.target.dataset.gf){ const g = (st.effects[+e.target.dataset.i]||{}).reviveGrants||[]; if(g[+e.target.dataset.j]) g[+e.target.dataset.j].stacks = Math.max(1, Math.min(99, parseInt(e.target.value,10)||1)); return; }
+    sync(e.target);
+  });
   box.addEventListener('change', e=>{
     sync(e.target);
     if(e.target.dataset && e.target.dataset.rerender) renderEffects();
   });
   box.addEventListener('click', e=>{
+    const ag = e.target.closest('[data-addgrant]');
+    if(ag){
+      const i = +ag.dataset.addgrant, eff = st.effects[i];
+      const sel = box.querySelector(`select[data-grantpick="${i}"]`);
+      if(eff && sel && sel.value){ (eff.reviveGrants = eff.reviveGrants||[]).push({statusId:sel.value, stacks:1}); renderEffects(); }
+      return;
+    }
+    const dg = e.target.closest('[data-delgrant]');
+    if(dg){
+      const [i,j] = dg.dataset.delgrant.split(':').map(Number);
+      const eff = st.effects[i]; if(eff && eff.reviveGrants){ eff.reviveGrants.splice(j,1); renderEffects(); }
+      return;
+    }
     const b = e.target.closest('[data-del]');
     if(!b) return;
     st.effects.splice(parseInt(b.dataset.del,10),1);
@@ -3419,16 +3459,18 @@ function openCardModal(card, isNew){
         </div>
       </div>
       <div class="section-label">効果</div>
-      ${allEffectFieldDefs().map(def=>{
+      ${[{g:'num',defs:EFFECT_FIELD_DEFS,t:'数値効果'},{g:'cs',defs:customStatusFieldDefs(),t:'カスタム状態付与'}].map(grp=>fxPickerHTML(grp.g,grp.t)+grp.defs.map(def=>{
         const sc = c.scales && c.scales[def.key];
         const upg = c.upgrades || {};
         const ppDelta = (upg.scalePP && upg.scalePP[def.key]) || 0;
         const min = def.min!==undefined ? def.min : 0;
         const baseDefault = def.default!==undefined ? def.default : 0;
         const baseVal = c[def.key]!==undefined ? c[def.key] : baseDefault;
+        const csOn = def._statusId && ((c['csX_'+def._statusId]|0)!==0 || ((upg['csX_'+def._statusId])|0)!==0 || ['self','opponent','both'].includes(c['csT_'+def._statusId]));
+        const fxOn = baseVal!==baseDefault || (upg[def.key]||0)!==0 || !!sc || ppDelta!==0 || !!csOn;
         return `
-      <div class="field effect-field">
-        <label>${def.label}</label>
+      <div class="field effect-field fx-row" data-group="${def._statusId?'cs':'num'}" data-fx="${escapeHtml(def.key)}" data-label="${escapeHtml(def.label)}" style="${fxOn?'':'display:none;'}">
+        <div style="display:flex; justify-content:space-between; align-items:center;"><label>${def.label}</label><button type="button" class="ghost fx-del">削除</button></div>
         ${def._statusId ? (()=>{
           const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
           const cur = ['self','opponent','both'].includes(c['csT_'+def._statusId]) ? c['csT_'+def._statusId] : 'default';
@@ -3454,7 +3496,7 @@ function openCardModal(card, isNew){
         <div style="display:flex; gap:6px; align-items:flex-end;">
           <div style="flex:1;">
             <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">基本値</div>
-            <input type="number" id="m-${def.key}" value="${baseVal}" min="${min}" max="${def.max}" style="width:100%;">
+            <input type="number" id="m-${def.key}" data-dflt="${baseDefault}" value="${baseVal}" min="${min}" max="${def.max}" style="width:100%;">
           </div>
           <div style="width:84px;">
             <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">↑強化時+/-</div>
@@ -3475,12 +3517,13 @@ function openCardModal(card, isNew){
           <input type="number" id="m-scaleppdelta-${def.key}" value="${ppDelta}" step="0.1" min="-10" max="10">
         </div>
       </div>`;
-      }).join('')}
+      }).join('')).join('')}
       <div class="section-label">ドロー時効果（本体の効果とは別に、山札から引いた瞬間に発動）</div>
       <p class="hint">使わなくても、手札に引いた時点で発動します。参照増減・カード操作・発動回数は使えません。</p>
+      ${fxPickerHTML('dw','ドロー時効果')}
       ${drawEffectFieldDefs().map(def=>`
-      <div class="field">
-        <label>${def.label}</label>
+      <div class="field fx-row" data-group="dw" data-fx="${def.key}" data-label="${escapeHtml(def.label)}" style="${(c[def.key]||0)!==0?'':'display:none;'}">
+        <div style="display:flex; justify-content:space-between; align-items:center;"><label>${def.label}</label><button type="button" class="ghost fx-del">削除</button></div>
         <input type="number" id="m-${def.key}" value="${c[def.key]||0}" min="${def.min!==undefined?def.min:0}" max="${def.max}">
       </div>`).join('')}
       <div class="checkbox-field"><input type="checkbox" id="m-exhaust" ${c.exhaust?'checked':''}><label for="m-exhaust">使用後に消滅する（エグゾースト）</label></div>
@@ -3595,6 +3638,39 @@ function openCardModal(card, isNew){
       qsa(`.cs-both-box[data-st="${id}"], .cs-both-note[data-st="${id}"]`,overlay).forEach(el=> el.style.display = both ? '' : 'none');
     };
   });
+  (function(){
+    const pickers = qsa('.fx-picker',overlay);
+    const rowsOf = g=> qsa(`.fx-row[data-group="${g}"]`,overlay);
+    function refresh(){
+      pickers.forEach(p=>{
+        const sel = qs('.fx-pick',p);
+        const hidden = rowsOf(p.dataset.group).filter(r=>r.style.display==='none');
+        sel.innerHTML = hidden.map(r=>`<option value="${escapeHtml(r.dataset.fx)}">${escapeHtml(r.dataset.label)}</option>`).join('');
+        p.style.display = hidden.length ? '' : 'none';
+      });
+    }
+    pickers.forEach(p=>{
+      qs('.fx-add',p).onclick = ()=>{
+        const key = qs('.fx-pick',p).value;
+        const row = rowsOf(p.dataset.group).find(r=>r.dataset.fx===key);
+        if(row){ row.style.display = ''; refresh(); }
+      };
+    });
+    qsa('.fx-del',overlay).forEach(b=>{
+      b.onclick = ()=>{
+        const row = b.closest('.fx-row');
+        qsa('input[type="number"]',row).forEach(i=>{ i.value = i.dataset.dflt!==undefined ? i.dataset.dflt : 0; });
+        qsa('input[type="text"]',row).forEach(i=>{ i.value = ''; });
+        qsa('select[id^="m-scalesrc-"]',row).forEach(x=>{ x.value = 'none'; });
+        qsa('select[id^="m-cst-"]',row).forEach(x=>{ x.value = 'default'; if(x.onchange) x.onchange(); });
+        qsa('.scale-config',row).forEach(x=>{ x.style.display = 'none'; });
+        qsa('.scale-toggle-btn',row).forEach(x=>{ x.textContent = '+参照増減'; });
+        row.style.display = 'none';
+        refresh();
+      };
+    });
+    refresh();
+  })();
   qs('#m-triggeron',overlay).onchange = ()=>{
     const d = qs('#m-triggeron',overlay).value==='damaged';
     qs('#trigger-cardused-fields',overlay).style.display = d ? 'none' : 'block';
@@ -4214,6 +4290,9 @@ function drawCards(n){
 // and per-field scaling are not supported here, to keep a passive, always-on trigger safe.
 function drawEffectFieldDefs(){
   return EFFECT_FIELD_DEFS.filter(d=>d.key!=='hits').map(def=>({...def, key:'dw_'+def.key, _base:def.key}));
+}
+function fxPickerHTML(group, title){
+  return `<div class="ev-add fx-picker" data-group="${group}" style="margin:8px 0;"><select class="fx-pick" aria-label="${title}"></select><button type="button" class="fx-add">＋ ${title}を追加</button></div>`;
 }
 function applyCardDrawEffect(r, c){
   if(!c) return;
