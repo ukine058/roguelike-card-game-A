@@ -425,6 +425,9 @@ function parseTags(v){
   return out;
 }
 // 敵専用・生成専用のカード（通常の報酬・ショップ・初期デッキには出ない）
+// 通常入手不可のレリック。ランダムな報酬・ショップ・開始時の選択肢・イベントのランダム入手には出ず、
+// 敵のドロップ指定・イベントのレリック指定・初期所持でだけ手に入る。
+function isNonRewardRelic(rel){ return !!rel && rel.rarity==='special'; }
 function isNonRewardCard(c){ return !!c && (c.rarity==='generated' || c.rarity==='enemy'); }
 function migrateCard(c){
   if(c){
@@ -898,7 +901,7 @@ function normalizeCard(c){
 }
 function normalizeRelic(r){
   r = migrateRelic({...r});
-  if(!['common','uncommon','rare'].includes(r.rarity)) r.rarity = 'common';
+  if(!['common','uncommon','rare','special'].includes(r.rarity)) r.rarity = 'common';
   if(!r.effect || typeof r.effect!=='object') r.effect = {};
   if(!RELIC_TIMINGS.some(t=>t.key===r.timing)) r.timing = 'onPickup';
   if(typeof r.triggerTag!=='string') r.triggerTag = '';
@@ -2992,7 +2995,7 @@ function openEnemyModal(enemy, isNew){
 }
 
 function renderRelicEditor(){
-  const groups = [['common','コモン'],['uncommon','アンコモン'],['rare','レア']];
+  const groups = [['common','コモン'],['uncommon','アンコモン'],['rare','レア'],['special','通常入手不可']];
   let html = `
   <div class="screen">
     <div class="topbar">
@@ -3337,6 +3340,7 @@ function openRelicModal(relic, isNew){
           <option value="common" ${rel.rarity==='common'?'selected':''}>コモン</option>
           <option value="uncommon" ${rel.rarity==='uncommon'?'selected':''}>アンコモン</option>
           <option value="rare" ${rel.rarity==='rare'?'selected':''}>レア</option>
+          <option value="special" ${rel.rarity==='special'?'selected':''}>通常入手不可（ランダムな報酬・ショップ・開始時の選択肢に出ない）</option>
         </select>
       </div>
       <div class="field"><label>開始時の所持数（0でなければ、ゲーム開始時にこの数だけ所持します）</label><input type="number" id="rm-startcount" value="${rel.startingCount||0}" min="0" max="9"></div>
@@ -4140,7 +4144,7 @@ function afterStartRelics(){
 function renderStartRelicPick(){
   const r = S.run;
   if(!r.startRelicChoices){
-    const pool = shuffle(S.relics.filter(x=>!r.player.relics.includes(x.id)));
+    const pool = shuffle(S.relics.filter(x=>!r.player.relics.includes(x.id) && !isNonRewardRelic(x)));
     r.startRelicChoices = pool.slice(0, Math.max(1, S.settings.startRelicPickChoices||3)).map(x=>x.id);
   }
   const choices = r.startRelicChoices.map(id=>S.relics.find(x=>x.id===id)).filter(Boolean);
@@ -4502,7 +4506,7 @@ function onEnemyDefeated(){
     if(fixed && !r.player.relics.includes(fixed.id)) dropRelic = fixed;
   }
   if(!dropRelic && (r.enemy.elite || r.enemy.boss)){
-    const avail = S.relics.filter(rel=>!r.player.relics.includes(rel.id));
+    const avail = S.relics.filter(rel=>!r.player.relics.includes(rel.id) && !isNonRewardRelic(rel));
     if(avail.length>0) dropRelic = avail[Math.floor(Math.random()*avail.length)];
   }
   r.pendingRelic = dropRelic;
@@ -5259,7 +5263,7 @@ function applyEventEffect(r, eff){
       relic = S.relics.find(x=>x.id===eff.relicId) || null;
       if(relic && owned.includes(relic.id)) relic = null;
     } else {
-      const pool = S.relics.filter(x=> !owned.includes(x.id) && evRarityOk(x.rarity, eff.rarity, false));
+      const pool = S.relics.filter(x=> !owned.includes(x.id) && !isNonRewardRelic(x) && evRarityOk(x.rarity, eff.rarity, false));
       relic = pool.length ? pool[Math.floor(Math.random()*pool.length)] : null;
     }
     if(!relic){ L('入手できるレリックがなかった。'); return; }
@@ -5670,7 +5674,7 @@ function renderShop(){
     r.shopRerollCount = 0;
     r.shopRemoveMode = false;
     r.shopUpgradeMode = false;
-    const availRelics = S.relics.filter(rel=>!r.player.relics.includes(rel.id));
+    const availRelics = S.relics.filter(rel=>!r.player.relics.includes(rel.id) && !isNonRewardRelic(rel));
     r.shopRelic = availRelics.length ? {...availRelics[Math.floor(Math.random()*availRelics.length)], price:S.settings.shopRelicPrice, sold:false} : null;
   }
   const totalOwned = ownedCardInstances(r).length;
