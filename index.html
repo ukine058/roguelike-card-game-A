@@ -144,6 +144,10 @@
   .intent.atk{ color:#e39a7f;}
   .intent.def{ color:#9fc3ce;}
   .intent.buf{ color:#c4a8de;}
+  .intent .intent-sub{ margin-top:5px; padding-top:5px; border-top:1px dashed var(--line); line-height:1.5; color:var(--parchment);}
+  .intent .intent-sub.dim{ margin-top:1px; padding-top:0; border-top:none; font-size:11px; color:var(--parchment-dim);}
+  .intent.lethal{ border-color:#c0504a; box-shadow:0 0 0 1px #c0504a66 inset;}
+  .intent .warn{ color:#ff8f86; font-weight:700;}
 
   .vsmark{ font-family:var(--font-en); font-size:26px; color:var(--line); margin-top:36px; }
 
@@ -157,8 +161,17 @@
   }
   .floor-progress{ font-size:12px; color:var(--parchment-dim); text-align:center; margin-bottom:6px;}
 
-  .log-box{ font-size:12px; color:var(--parchment-dim); background:var(--bg-panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:70px; overflow-y:auto; margin-top:10px;}
+  .log-head{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:11px; color:var(--parchment-dim);}
+  .log-toggle{ background:transparent; color:var(--parchment-dim); border:1px solid var(--line); border-radius:4px; font-size:11px; padding:2px 8px; cursor:pointer;}
+  .log-box{ font-size:12px; color:var(--parchment-dim); background:var(--bg-panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:150px; overflow-y:auto; margin-top:4px; resize:vertical; line-height:1.5;}
+  .log-box.expanded{ max-height:60vh;}
   .log-box div{ margin-bottom:2px; }
+  .log-box .lg-hit{ color:#e39a7f;}
+  .log-box .lg-guard{ color:#9fc3ce;}
+  .log-box .lg-deal{ color:#e6d9a8;}
+  .log-box .lg-sum{ color:#e39a7f; font-weight:700;}
+  .log-box .lg-sub{ display:block; font-size:11px; opacity:.75; padding-left:1.2em;}
+  .log-box .lg-turnrow{ margin:6px 0 2px; padding-top:3px; border-top:1px dashed var(--line); color:var(--gold); font-size:11px; letter-spacing:.05em;}
 
   /* ---------- Reward / result screens ---------- */
   .center-screen{ text-align:center; padding:30px 10px; }
@@ -753,7 +766,7 @@ function cardDescription(c){
   });
   { const so = statusOpText(c.statusOp); if(so) parts.push(so); }
   if(c.pierce) parts.push('ブロックを無視する（貫通）');
-  if(c.lifesteal) parts.push('与えたダメージ分HP回復（吸血）');
+  if(c.lifesteal) parts.push('与えたダメージ分HP回復（吸血。ブロックで防がれた分は回復しない）');
   if(c.retain) parts.push('ターンをまたいで手札に残る（保持）');
   if(c.cardOp && c.cardOp.enabled){
     const isGenerate = GENERATE_TYPES.includes(c.cardOp.type);
@@ -1868,21 +1881,30 @@ function applyEnemyCardPayload(r, e, c){
     const V = key=> enemyVal(c, key);
     const dmg = V('damage');
     if(dmg>0){
-      const dealt = applyDamageToPlayer(dmg + e.strength, c.pierce);
-      if(r.lastHit && r.lastHit.total>0){ (r.damageEvents = r.damageEvents||[]).push({...r.lastHit}); }
-      pushLog(`${e.name}の「${c.name}」！ ${dealt}ダメージ${c.pierce?'（貫通）':''}。`);
-      if(c.lifesteal && dealt>0) e.hp = Math.min(e.maxHp, e.hp + dealt);
+      applyDamageToPlayer(dmg + e.strength, c.pierce);
+      const lh = r.lastHit;
+      if(lh && lh.total>0){ (r.damageEvents = r.damageEvents||[]).push({...lh}); }
+      logEnemyHit(e, c, lh, dmg, e.strength, replays>1 ? `${rep+1}/${replays}発目` : '');
+      const st = r.enemyTurnStat;
+      if(st && lh && lh.total>0){ st.hits++; st.total += lh.total; st.blocked += lh.blocked; st.hpLoss += lh.hpBefore - lh.hpAfter; }
+      // 吸収: ブロックで防がれた分は回復しない。実際にHPを減らせた分だけ回復する。
+      if(c.lifesteal){
+        const heal = lh ? lh.hpLoss : 0;
+        if(heal>0){ const b = e.hp; e.hp = Math.min(e.maxHp, e.hp + heal); pushLog(`${e.name}は吸収で${e.hp-b}回復（敵HP ${b}→${e.hp}）。`, 'deal'); }
+        else if(lh && lh.total>0) pushLog(`${e.name}の吸収: 全て防がれたので回復なし。`, 'guard');
+      }
       const reflectTotal = p.thorns + p.permThorns + customReflectDamage(p);
       if(reflectTotal>0){
+        const eBefore = e.hp;
         e.hp = Math.max(0, e.hp - reflectTotal);
-        pushLog(`棘によって${e.name}に${reflectTotal}ダメージ。`);
+        pushLog(`棘によって${e.name}に${reflectTotal}ダメージ（敵HP ${eBefore}→${e.hp}）。`, 'deal');
       }
     }
     const blk = V('block');
     if(blk>0){
       const total = Math.max(0, blk + customBlockGainBonus(e));
       e.block += total;
-      pushLog(`${e.name}は防御態勢。ブロック+${total}。`);
+      pushLog(`${e.name}は防御態勢。ブロック+${total}（現在${e.block}）。`);
     }
     const heal = V('heal');
     if(heal>0) e.hp = Math.min(e.maxHp, e.hp + heal);
@@ -2394,21 +2416,27 @@ function resolveCardOp(r, op, done){
 function applyEffectValues(r, c){
   const dmgVal = Math.max(0, (c.damage||0) + scaleBonus(c,'damage'));
   if(dmgVal>0){
-    const dealt = applyDamageToEnemy(dmgVal + r.player.strength + r.player.permStrength, c.pierce);
-    pushLog(`${c.name}: 敵に${dealt}ダメージ${c.pierce?'（貫通）':''}。`);
-    if(c.lifesteal && dealt>0){ r.player.hp = Math.min(r.player.maxHp, r.player.hp + dealt); }
+    const strTotal = r.player.strength + r.player.permStrength;
+    applyDamageToEnemy(dmgVal + strTotal, c.pierce, h=> logPlayerHit(c, h, dmgVal, strTotal));
+    // 吸収: ブロックで防がれた分は回復しない。実際に敵のHPを減らせた分だけ回復する。
+    if(c.lifesteal){
+      const lh = r.lastEnemyHit, heal = lh ? lh.hpLoss : 0;
+      if(heal>0){ const b = r.player.hp; r.player.hp = Math.min(r.player.maxHp, r.player.hp + heal); pushLog(`${c.name}: 吸収でHPを${r.player.hp-b}回復（HP ${b}→${r.player.hp}）。`); }
+      else if(lh && lh.total>0) pushLog(`${c.name}: 吸収は全て防がれたので回復なし。`);
+    }
     // 敵が持つカスタム状態の「反射」: 攻撃を受けた敵が、攻撃した側にダメージを返す（ブロック無視）
     const foeReflect = customReflectDamage(r.enemy);
     if(foeReflect>0 && r.enemy.hp>0 && r.player.hp>0){
+      const pBefore = r.player.hp;
       r.player.hp = Math.max(0, r.player.hp - foeReflect);
-      pushLog(`${r.enemy.name}の反射によって${foeReflect}ダメージを受けた。`);
+      pushLog(`${r.enemy.name}の反射によって${foeReflect}ダメージを受けた（HP ${pBefore}→${r.player.hp}）。`, 'hit');
     }
   }
   const blockVal = Math.max(0, (c.block||0) + scaleBonus(c,'block'));
   if(blockVal>0){
     const total = Math.max(0, blockVal + r.player.dexterity + r.player.permDexterity + customBlockGainBonus(r.player));
     r.player.block += total;
-    pushLog(`${c.name}: ブロック+${total}。`);
+    pushLog(`${c.name}: ブロック+${total}（現在${r.player.block}）。`);
   }
   const drawVal = Math.max(0, (c.draw||0) + scaleBonus(c,'draw'));
   if(drawVal>0){ drawCards(drawVal); pushLog(`${c.name}: カードを${drawVal}枚引いた。`); }
@@ -3642,7 +3670,7 @@ function openCardModal(card, isNew){
       </div>`).join('')}
       <div class="checkbox-field"><input type="checkbox" id="m-exhaust" ${c.exhaust?'checked':''}><label for="m-exhaust">使用後に消滅する（エグゾースト）</label></div>
       <div class="checkbox-field"><input type="checkbox" id="m-pierce" ${c.pierce?'checked':''}><label for="m-pierce">ブロックを無視する（貫通）</label></div>
-      <div class="checkbox-field"><input type="checkbox" id="m-lifesteal" ${c.lifesteal?'checked':''}><label for="m-lifesteal">与えたダメージ分HPを回復する（吸血）</label></div>
+      <div class="checkbox-field"><input type="checkbox" id="m-lifesteal" ${c.lifesteal?'checked':''}><label for="m-lifesteal">与えたダメージ分HPを回復する（吸血。ブロックで防がれた分は回復しない）</label></div>
       <div class="checkbox-field"><input type="checkbox" id="m-retain" ${c.retain?'checked':''}><label for="m-retain">ターンをまたいで手札に残る（保持）</label></div>
       <div class="section-label">カード操作（発展効果）</div>
       <div class="checkbox-field"><input type="checkbox" id="m-op-enabled" ${c.cardOp&&c.cardOp.enabled?'checked':''}><label for="m-op-enabled">カード操作を有効にする</label></div>
@@ -4317,9 +4345,55 @@ function renderStartPick(){
   });
 }
 
-function pushLog(msg){
-  S.run.log.unshift(msg);
-  if(S.run.log.length>30) S.run.log.pop();
+// ログは新しいものが上。kind: 'hit'(HPが減った) / 'guard'(全部防いだ) / 'deal'(自分の攻撃) / 'sum'(まとめ) / 'turn'(ターン区切り)。
+// detail を渡すと、その行の下に小さく内訳を表示する。
+const LOG_MAX = 400;
+let LOG_EXPANDED = false;
+function pushLog(msg, kind, detail){
+  let html = kind ? `<span class="lg lg-${kind}">${msg}</span>` : msg;
+  if(detail) html += `<span class="lg-sub">${detail}</span>`;
+  S.run.log.unshift(html);
+  if(S.run.log.length>LOG_MAX) S.run.log.pop();
+}
+// 結果画面（勝利・報酬・ドロップなど）に付ける、直前の戦闘ログ（折りたたみ）
+function battleLogDetails(r, open){
+  if(!r || !r.log || !r.log.length) return '';
+  return `<details ${open?'open':''} style="margin-top:18px; max-width:620px; width:100%; text-align:left;"><summary style="cursor:pointer; color:var(--parchment-dim); font-size:13px;">今回の戦闘ログ（${r.log.length}件）</summary><div class="log-box expanded">${battleLogHTML(r)}</div></details>`;
+}
+function battleLogHTML(r){
+  return r.log.map(l=> l.startsWith('<span class="lg lg-turn">')
+    ? `<div class="lg-turnrow">${l}</div>`
+    : `<div>・${l}</div>`).join('');
+}
+// 1発ぶんの結果を「全部防いだ／いくら防いで残りがHPに」の形で説明する。target: 'player'=自分が受けた, 'enemy'=敵が受けた
+function hitResultText(h, target){
+  const isP = target==='player';
+  const hpName = isP ? 'HP' : '敵HP';
+  let s;
+  if(h.hpLoss<=0) s = `全てブロックで${isP?'防いだ':'防がれた'}（ブロック ${h.blockBefore}→${h.blockAfter}）`;
+  else if(h.blocked>0) s = `ブロック${h.blocked}で${isP?'防ぎ':'防がれ'}、${hpName}-${h.hpLoss}（${hpName} ${h.hpBefore}→${h.hpAfter}／ブロック ${h.blockBefore}→${h.blockAfter}）`;
+  else s = `${hpName}-${h.hpLoss}（${hpName} ${h.hpBefore}→${h.hpAfter}）`;
+  if(h.pierce && h.blockBefore>0) s += `　※貫通でブロック${h.blockBefore}を無視`;
+  return s;
+}
+function hitBreakdownText(power, str, mods, total, label){
+  const steps = [`威力${power}${str?`＋強化${str}`:''}`].concat(mods||[]);
+  return (steps.length>1 || str) ? `${label||'内訳'}: ${steps.join(' → ')} ＝ ${total}` : '';
+}
+function logEnemyHit(e, c, h, power, str, tag){
+  const head = `${e.name}の「${c.name}」${tag?`（${tag}）`:''}！ `;
+  if(h.total<=0){ pushLog(`${head}ダメージなし。`, 'guard'); return; }
+  pushLog(`${head}${h.total}ダメージ → ${hitResultText(h,'player')}。`, h.hpLoss>0?'hit':'guard', hitBreakdownText(power, str, h.mods, h.total));
+}
+function logPlayerHit(c, h, power, str){
+  if(h.total<=0){ pushLog(`${c.name}: 敵にダメージを与えられなかった。`, 'deal'); return; }
+  pushLog(`${c.name}: 敵に${h.total}ダメージ → ${hitResultText(h,'enemy')}。`, 'deal', hitBreakdownText(power, str, h.mods, h.total));
+}
+// 敵の1回の行動で攻撃が2発以上当たったときの、被弾の合計
+function logEnemyTurnSummary(r){
+  const st = r.enemyTurnStat; r.enemyTurnStat = null;
+  if(!st || st.hits<2) return;
+  pushLog(`被弾まとめ: ${st.hits}発で合計${st.total}ダメージ → ブロックで${st.blocked}防ぎ、HP-${st.hpLoss}（HP ${st.hpStart}→${r.player.hp}）`, 'sum');
 }
 
 function beginFloor(){
@@ -4368,6 +4442,7 @@ function beginFloor(){
   applyEnemyStartEffects(r, r.enemy, r.enemy.startEffect);
   r.player.block = 0;
   r.log = [];
+  r.turnNo = 0;
   pushLog(`${r.enemy.name}が現れた！`);
   applyNextCombatEffects(r);
   runEnemyStartCards(r);
@@ -4423,9 +4498,12 @@ function applyCardDrawEffect(r, c){
 
 function startPlayerTurn(first){
   const r = S.run;
+  r.turnNo = (r.turnNo||0) + 1;
+  pushLog(`ターン${r.turnNo}`, 'turn');
   if(r.player.poison>0){
-    r.player.hp = Math.max(0, r.player.hp - r.player.poison);
-    pushLog(`毒によって${r.player.poison}ダメージを受けた。`);
+    const hpBefore = r.player.hp, pv = r.player.poison;
+    r.player.hp = Math.max(0, r.player.hp - pv);
+    pushLog(`毒によって${pv}ダメージを受けた（HP ${hpBefore}→${r.player.hp}。毒は${pv-1}に減少）。`, 'hit');
     r.player.poison--;
     if(playerFallen()){ onPlayerDefeated(); return; }
   }
@@ -4474,41 +4552,61 @@ function startPlayerTurn(first){
   sync = false;
 }
 
-function applyDamageToEnemy(raw, pierce){
+function applyDamageToEnemy(raw, pierce, onHit){
   const r = S.run; const e = r.enemy;
   let dmg = raw;
+  const mods = [];
   const dealtBonus = customDamageDealtBonus(r.player);
-  dmg += dealtBonus.flat;
-  if(r.player.weak>0) dmg = Math.floor(dmg*0.75);
-  if(dealtBonus.pct) dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100)));
-  if(e.vulnerable>0) dmg = Math.floor(dmg*1.5);
+  if(dealtBonus.flat){ dmg += dealtBonus.flat; mods.push(`${dealtBonus.flat>0?'+':''}${dealtBonus.flat}（状態）`); }
+  if(r.player.weak>0){ dmg = Math.floor(dmg*0.75); mods.push('あなたの弱体×0.75'); }
+  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); mods.push(`${dealtBonus.pct>0?'+':''}${dealtBonus.pct}%（状態）`); }
+  if(e.vulnerable>0){ dmg = Math.floor(dmg*1.5); mods.push('敵の脆弱×1.5'); }
   const takenFlat = customDamageTakenFlat(e);
-  if(takenFlat && dmg>0) dmg = Math.max(0, dmg + takenFlat);
+  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); mods.push(`${takenFlat>0?'+':''}${takenFlat}（敵の状態）`); }
   const takenPct = customDamageTakenPct(e);
-  if(takenPct) dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100)));
+  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); mods.push(`${takenPct>0?'+':''}${takenPct}%（敵の状態）`); }
+  dmg = Math.max(0, dmg);
+  const hpBefore = e.hp, blockBefore = e.block;
   let blocked = 0;
   if(!pierce){ blocked = Math.min(e.block, dmg); e.block -= blocked; dmg -= blocked; }
   e.hp = Math.max(0, e.hp - dmg);
+  const hit = {raw, mods, total: dmg+blocked, blocked, hpLoss: dmg, pierce: !!pierce, hpBefore, hpAfter: e.hp, blockBefore, blockAfter: e.block};
+  r.lastEnemyHit = hit;
+  if(onHit) onHit(hit);   // 敵の構え（トリガー）のログより先に、この攻撃のログを残すため
   if(dmg+blocked>0) fireEnemyTriggers(r, 'damaged', {hpLoss: dmg, total: dmg+blocked});
   return dmg+blocked;
 }
-function applyDamageToPlayer(raw){
-  const r = S.run; const p = r.player;
+// 敵の攻撃1発あたり、プレイヤーが受けるダメージ（ブロックを引く前）を計算する。状態は変更しない。
+// 実際の処理（applyDamageToPlayer）と行動予告の予測の両方がこれを使うので、予告と結果がずれにくい。
+// opts.vulnerable: プレイヤーの脆弱の残りターン数を仮定して計算したいとき（予測用）
+function calcPlayerDamage(raw, opts){
+  opts = opts||{};
+  const r = S.run, p = r.player, en = r.enemy;
+  const vuln = opts.vulnerable!==undefined ? opts.vulnerable : p.vulnerable;
+  const mods = [];
   let dmg = raw;
-  const dealtBonus = customDamageDealtBonus(r.enemy);
-  dmg += dealtBonus.flat;
-  if(r.enemy.weak>0) dmg = Math.floor(dmg*0.75);
-  if(dealtBonus.pct) dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100)));
-  if(p.vulnerable>0) dmg = Math.floor(dmg*1.5);
+  const dealtBonus = customDamageDealtBonus(en);
+  if(dealtBonus.flat){ dmg += dealtBonus.flat; mods.push(`${dealtBonus.flat>0?'+':''}${dealtBonus.flat}（敵の状態）`); }
+  if(en.weak>0){ dmg = Math.floor(dmg*0.75); mods.push('敵の弱体×0.75'); }
+  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); mods.push(`${dealtBonus.pct>0?'+':''}${dealtBonus.pct}%（敵の状態）`); }
+  if(vuln>0){ dmg = Math.floor(dmg*1.5); mods.push('あなたの脆弱×1.5'); }
   const takenFlat = customDamageTakenFlat(p);
-  if(takenFlat && dmg>0) dmg = Math.max(0, dmg + takenFlat);
+  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); mods.push(`${takenFlat>0?'+':''}${takenFlat}（あなたの状態）`); }
   const takenPct = customDamageTakenPct(p);
-  if(takenPct) dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100)));
-  const blocked = Math.min(p.block, dmg);
-  p.block -= blocked; dmg -= blocked;
-  p.hp = Math.max(0, p.hp - dmg);
-  r.lastHit = {hpLoss: dmg, total: dmg+blocked};
-  return dmg+blocked;
+  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); mods.push(`${takenPct>0?'+':''}${takenPct}%（あなたの状態）`); }
+  return {raw, total: Math.max(0, dmg), mods};
+}
+function applyDamageToPlayer(raw, pierce){
+  const r = S.run; const p = r.player;
+  const calc = calcPlayerDamage(raw);
+  const total = calc.total;
+  const hpBefore = p.hp, blockBefore = p.block;
+  const blocked = pierce ? 0 : Math.min(p.block, total);   // 貫通なら、ブロックを無視する
+  p.block -= blocked;
+  const hpLoss = total - blocked;
+  p.hp = Math.max(0, p.hp - hpLoss);
+  r.lastHit = {raw, mods: calc.mods, hpLoss, total, blocked, pierce: !!pierce, hpBefore, hpAfter: p.hp, blockBefore, blockAfter: p.block};
+  return total;
 }
 
 function playCard(handIdx){
@@ -4547,10 +4645,12 @@ function endPlayerTurn(){
 function runEnemyTurn(){
   const r = S.run; const e = r.enemy;
   if(r.ended) return;
+  pushLog(`ターン${r.turnNo||1}・${e.name}の行動`, 'turn');
   // poison at start of enemy turn
   if(e.poison>0){
-    e.hp = Math.max(0, e.hp - e.poison);
-    pushLog(`${e.name}は毒で${e.poison}ダメージ。`);
+    const eBefore = e.hp, pv = e.poison;
+    e.hp = Math.max(0, e.hp - pv);
+    pushLog(`${e.name}は毒で${pv}ダメージ（敵HP ${eBefore}→${e.hp}。毒は${pv-1}に減少）。`, 'deal');
     e.poison--;
     if(enemyFallen()){ onEnemyDefeated(); return; }
   }
@@ -4567,7 +4667,9 @@ function runEnemyTurn(){
     const move = cardById(e.nextMoveId);
     r.damageEvents = [];
     e.triggers = (e.triggers||[]).filter(t=>t.duration!=='turn'); // 「このターンのみ」の構えは、次の行動の前に解ける
+    r.enemyTurnStat = {hits:0, total:0, blocked:0, hpLoss:0, hpStart:r.player.hp};
     if(move) resolveEnemyMoveEffects(r, e, move);
+    logEnemyTurnSummary(r);
     // ダメージを受けたときのトリガー（カード操作で選択画面が出る場合は、選び終わってから続きへ）
     fireDamageTriggers(r, ()=>{
       // Resolved at the start of the player's next turn, once the new hand is drawn (視点反転: resolveEnemyCardOp).
@@ -4647,6 +4749,7 @@ function renderDropCards(){
       <button class="primary" id="btn-drop-take" ${n===0?'disabled':''}>選んだ${n}枚を受け取る</button>
       <button class="ghost" id="btn-drop-none">すべて受け取らない</button>
     </div>
+    ${battleLogDetails(r, false)}
   </div>`;
   qsa('#drop-row > div').forEach(w=>{
     w.onclick = ()=>{ const i = parseInt(w.dataset.idx,10); sel[i] = !sel[i]; renderDropCards(); };
@@ -4701,8 +4804,9 @@ function intentLabel(e){
   const parts = [];
   const hits = Math.max(1, (c.hits||1) + scaleBonus(c,'hits','enemy'));
   if(V('damage')>0){
-    const per = V('damage') + e.strength;
-    parts.push(`ダメージ${per}${hits>1?`×${hits}`:''}`);
+    // 元の威力（参照増減は反映済み）。強化や弱体・脆弱を含めた実際の予測は、下の「予測」行に出す。
+    const printed = c.damage||0;
+    parts.push(`威力${V('damage')}${hits>1?`×${hits}`:''}${V('damage')!==printed?`（記載${printed}）`:''}`);
   }
   if(V('block')>0) parts.push(`ブロック${Math.max(0, V('block') + customBlockGainBonus(e))}`);
   const str = V('strength')+V('permStrength');
@@ -4743,7 +4847,65 @@ function intentLabel(e){
     const when = c.triggerOn==='damaged' ? 'ダメージを受けたとき' : `${c.triggerTag?`[${c.triggerTag}]の`:''}カードを使ったとき`;
     trigText = `【構え：${when}】`;
   }
-  return {cls, text:`予告: ${cardIcon(c)}${escapeHtml(c.name)}${trigText}${parts.length?' '+parts.join('・'):''}`};
+  const pred = isTrig ? null : predictEnemyAttack(e, c);
+  return {cls, text:`予告: ${cardIcon(c)}${escapeHtml(c.name)}${trigText}${parts.length?' '+parts.join('・'):''}`,
+          sub: pred ? predictionLines(e, pred) : '', lethal: !!(pred && pred.lethal)};
+}
+
+// 敵の攻撃を、実際の処理（applyEnemyCardPayload）と同じ順序でシミュレートして、被ダメージを予測する。
+// 反映するもの: 強化・弱体・脆弱・状態異常の増減、多段攻撃での「1発ごとの強化の積み上がり」「同じ行動で脆弱が付く場合の後続ヒット」、
+//              現在のブロック（1発ごとに減っていく）、貫通、プレイヤーのターン終了時に脆弱が1減る処理。
+// 反映しないもの: 敵の構え（トリガー）による追加攻撃、敵のターン開始時の状態の変化、プレイヤーの仕込みの効果。
+function predictEnemyAttack(e, c){
+  const r = S.run, p = r.player;
+  const V = key=> enemyVal(c, key);
+  const base = V('damage');
+  if(c.timing==='trigger' || base<=0) return null;
+  const hits = Math.max(1, (c.hits||1) + scaleBonus(c,'hits','enemy'));
+  const strGain = V('strength') + V('permStrength');   // 同じ行動で強化を得るなら、1発ごとに積み上がる
+  const vulnGain = V('vulnerable');                    // 同じ行動で脆弱を付けるなら、2発目以降に効く
+  const ticking = r.turnPhase==='player' && p.vulnerable>0;
+  let vuln = r.turnPhase==='player' ? Math.max(0, p.vulnerable-1) : p.vulnerable;   // ターン終了時に脆弱が1減ってから、敵が動く
+  const vulnStart = vuln;
+  let blk = p.block, hp = p.hp, strAdd = 0;
+  const rows = [];
+  for(let i=0; i<hits && hp>0; i++){
+    const calc = calcPlayerDamage(base + e.strength + strAdd, {vulnerable: vuln});
+    const blocked = c.pierce ? 0 : Math.min(blk, calc.total);
+    blk -= blocked;
+    const loss = calc.total - blocked;
+    hp = Math.max(0, hp - loss);
+    rows.push({total: calc.total, blocked, loss, mods: calc.mods});
+    strAdd += strGain;
+    if(vulnGain>0) vuln += vulnGain;
+  }
+  const sum = k=> rows.reduce((a,x)=>a+x[k],0);
+  const total = sum('total');
+  return {base, hits, rows, total, blocked: sum('blocked'), loss: sum('loss'), strGain, newVuln: vulnGain>0 && vulnStart<=0,
+          hpBefore: p.hp, hpAfter: hp, blockBefore: p.block, blockAfter: blk,
+          lethal: hp<=0, pierce: !!c.pierce, needBlock: c.pierce ? 0 : Math.max(0, total - p.block),
+          vulnNote: ticking ? `あなたの脆弱${p.vulnerable}は、ターン終了時に${vulnStart}へ減る前提` : ''};
+}
+function predictionLines(e, pr){
+  let res;
+  if(pr.total<=0) res = 'ダメージなし';
+  else if(pr.loss<=0) res = `全てブロックで防げる（ブロック ${pr.blockBefore}→${pr.blockAfter}）`;
+  else if(pr.blocked>0) res = `ブロック${pr.blocked}で防ぎ、HP-${pr.loss}（HP ${pr.hpBefore}→${pr.hpAfter}）`;
+  else res = `HP-${pr.loss}（HP ${pr.hpBefore}→${pr.hpAfter}）`;
+  const head = pr.rows.length>1
+    ? `予測 <b>合計${pr.total}ダメージ</b>（${pr.rows.map(x=>x.total).join('＋')}）`
+    : `予測 <b>${pr.total}ダメージ</b>`;
+  let html = `<div class="intent-sub">${head} → ${res}${pr.lethal?' <span class="warn">⚠ 致死</span>':''}</div>`;
+  const notes = [];
+  const bd = hitBreakdownText(pr.base, e.strength, pr.rows[0] ? pr.rows[0].mods : [], pr.rows[0] ? pr.rows[0].total : 0, pr.rows.length>1 ? '1発目の内訳' : '内訳');
+  if(bd) notes.push(bd);
+  if(pr.rows.length>1 && pr.strGain>0) notes.push(`1発ごとに強化+${pr.strGain}`);
+  if(pr.rows.length>1 && pr.newVuln) notes.push('この攻撃で脆弱が付くため、2発目以降は×1.5');
+  if(pr.pierce) notes.push('貫通（ブロック無視）');
+  else if(pr.loss>0) notes.push(`完全に防ぐには、あと${pr.needBlock}ブロック`);
+  if(pr.vulnNote) notes.push(pr.vulnNote);
+  if(notes.length) html += `<div class="intent-sub dim">${notes.join('／')}</div>`;
+  return html;
 }
 
 function renderCardChoiceOverlay(r){
@@ -4807,7 +4969,7 @@ function renderBattle(){
         <div class="cname">${e.name}</div>
         <div class="hpbar-wrap"><div class="hpbar-fill" style="width:${Math.max(0,100*e.hp/e.maxHp)}%"></div><div class="hpbar-text">${e.hp} / ${e.maxHp}${e.block?` (🛡${e.block})`:''}</div></div>
         <div class="statuses">${statusChips(e)}</div>
-        <div class="intent ${intent.cls}">${intent.text}</div>
+        <div class="intent ${intent.cls}${intent.lethal?' lethal':''}">${intent.text}${intent.sub||''}</div>
       </div>
     </div>
 
@@ -4826,7 +4988,8 @@ function renderBattle(){
           return `<div data-idx="${idx}">${renderCardHTML(c,{unplayable})}</div>`;
         }).join('')}
       </div>
-      <div class="log-box">${r.log.map(l=>`<div>・${l}</div>`).join('')}</div>
+      <div class="log-head"><span>戦闘ログ（新しい順・${r.log.length}件）</span><button class="log-toggle" id="btn-log-size">${LOG_EXPANDED?'縮小':'拡大'}</button></div>
+      <div class="log-box${LOG_EXPANDED?' expanded':''}">${battleLogHTML(r)}</div>
     </div>
   </div>`;
 
@@ -4837,6 +5000,7 @@ function renderBattle(){
     };
   });
   qs('#btn-endturn').onclick = endPlayerTurn;
+  qs('#btn-log-size').onclick = ()=>{ LOG_EXPANDED = !LOG_EXPANDED; renderBattle(); };
 }
 
 /* ============================= REST SCREEN ============================= */
@@ -5077,6 +5241,7 @@ function renderRelicReward(){
       <button class="primary" id="btn-relic-take">手に入れる</button>
       <button class="ghost" id="btn-relic-skip">見送る</button>
     </div>
+    ${battleLogDetails(r, false)}
   </div>`;
   qs('#btn-relic-take').onclick = ()=>{ applyRelicEffect(r, rel); r.pendingRelic=null; S.screen='reward'; renderReward(); };
   qs('#btn-relic-skip').onclick = ()=>{ r.pendingRelic=null; S.screen='reward'; renderReward(); };
@@ -5936,6 +6101,7 @@ function renderReward(){
     </div>
     ${cfg.tagFocusEnabled ? `<p style="font-size:11px; color:var(--parchment-dim); margin-top:6px;">タグを指定すると、1枚目はそのタグのカードになり、他の枠も出やすくなる（ゴールド払いは+${cfg.rerollTagExtra}G）。</p>` : ''}` : ''}
     <button class="ghost" id="btn-skip" style="margin-top:10px;">受け取らずに進む${(cfg.rewardRerollEnabled&&cfg.skipTokenEnabled)?'（リロールトークン+1）':''}</button>
+    ${battleLogDetails(r, false)}
   </div>`;
   const finish = ()=>{ r.rewardChoices=null; r.rewardRerollCount=0; r.rewardFocusTag=''; r.floor++; beginFloor(); };
   qsa('#reward-row > div').forEach(wrap=>{
@@ -5968,6 +6134,7 @@ function renderVictory(){
     <h2>${escapeHtml(S.world.victoryTitle)}</h2>
     <p style="color:var(--parchment-dim); margin-top:10px; max-width:520px; white-space:pre-wrap;">${escapeHtml(worldText('victoryText',{floors:S.settings.floorCount}))}</p>
     <div style="margin-top:26px;"><button class="primary" id="btn-home">ホームへ戻る</button></div>
+    ${battleLogDetails(S.run, true)}
   </div>`;
   qs('#btn-home').onclick = ()=>{ S.screen='home'; renderHome(); };
 }
@@ -5979,6 +6146,7 @@ function renderDefeat(){
     <h2>${escapeHtml(S.world.defeatTitle)}</h2>
     <p style="color:var(--parchment-dim); margin-top:10px; max-width:520px; white-space:pre-wrap;">${escapeHtml(worldText('defeatText',{floor:r.floor,floors:S.settings.floorCount}))}</p>
     <div style="margin-top:26px;"><button class="primary" id="btn-home">ホームへ戻る</button></div>
+    ${battleLogDetails(r, true)}
   </div>`;
   qs('#btn-home').onclick = ()=>{ S.screen='home'; renderHome(); };
 }
