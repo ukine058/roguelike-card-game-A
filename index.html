@@ -1869,7 +1869,7 @@ function applyEnemyCardPayload(r, e, c){
     }
     const blk = V('block');
     if(blk>0){
-      const total = blk + customBlockGainBonus(e);
+      const total = Math.max(0, blk + customBlockGainBonus(e));
       e.block += total;
       pushLog(`${e.name}は防御態勢。ブロック+${total}。`);
     }
@@ -2395,7 +2395,7 @@ function applyEffectValues(r, c){
   }
   const blockVal = Math.max(0, (c.block||0) + scaleBonus(c,'block'));
   if(blockVal>0){
-    const total = blockVal + r.player.dexterity + r.player.permDexterity + customBlockGainBonus(r.player);
+    const total = Math.max(0, blockVal + r.player.dexterity + r.player.permDexterity + customBlockGainBonus(r.player));
     r.player.block += total;
     pushLog(`${c.name}: ブロック+${total}。`);
   }
@@ -4596,7 +4596,7 @@ function intentLabel(e){
     const per = V('damage') + e.strength;
     parts.push(`ダメージ${per}${hits>1?`×${hits}`:''}`);
   }
-  if(V('block')>0) parts.push(`ブロック${V('block') + e.dexterity}`);
+  if(V('block')>0) parts.push(`ブロック${Math.max(0, V('block') + customBlockGainBonus(e))}`);
   const str = V('strength')+V('permStrength');
   if(str>0) parts.push(`強化${str}`);
   const dex = V('dexterity')+V('permDexterity');
