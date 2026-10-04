@@ -563,6 +563,7 @@ function migrateEnemy(e){
   if(!Array.isArray(e.dropCardIds)) e.dropCardIds = [];
   if(!Array.isArray(e.startCards)) e.startCards = [];
   if(!Array.isArray(e.forcedMoves)) e.forcedMoves = [];
+  if(!Array.isArray(e.chains)) e.chains = [];
   return e;
 }
 function loadEnemies(){
@@ -1032,6 +1033,7 @@ function normalizeEnemy(e){
   e.dropCardIds = Array.isArray(e.dropCardIds) ? e.dropCardIds.filter(x=>typeof x==='string') : [];
   e.startCards = e.startCards.filter(id=> typeof id==='string' && S.cards.some(c=>c.id===id));
   e.forcedMoves = cleanForcedMoves(e.forcedMoves);
+  e.chains = cleanChains(e.chains);
   e.image = cleanImage(e.image);
   return e;
 }
@@ -2669,7 +2671,7 @@ function renderEnemyEditor(){
 }
 
 function openEnemyModal(enemy, isNew){
-  const en = {...enemy, startCards:(enemy.startCards||[]).slice(), forcedMoves:(enemy.forcedMoves||[]).map(x=>({...x})), deck: (enemy.deck||[]).map(x=>({...x})), startEffect:{...(enemy.startEffect||{})}, dropCardIds:(enemy.dropCardIds||[]).slice(), dropRelicId: enemy.dropRelicId||''};
+  const en = {...enemy, startCards:(enemy.startCards||[]).slice(), forcedMoves:(enemy.forcedMoves||[]).map(x=>({...x})), chains:(enemy.chains||[]).map(x=>({...x})), deck: (enemy.deck||[]).map(x=>({...x})), startEffect:{...(enemy.startEffect||{})}, dropCardIds:(enemy.dropCardIds||[]).slice(), dropRelicId: enemy.dropRelicId||''};
   const dropRelicPool = S.relics.slice().sort((a,b)=> a.name.localeCompare(b.name,'ja'));
   const dropCardPool = S.cards.slice().sort((a,b)=> a.name.localeCompare(b.name,'ja'));
   // Any card can go in an enemy's deck — including ordinary player cards like "ストライク".
@@ -2731,9 +2733,13 @@ function openEnemyModal(enemy, isNew){
       </div>
       <div id="em-start-card-list"></div>
       <div class="section-label">条件付きの確定行動</div>
-      <p class="hint">条件を満たしたとき、通常の抽選の代わりに、指定したカードを次の行動として確定させます。上にあるものほど優先されます。判定は、敵が次の行動を予告するとき（敵の行動の直後）に行います。一度予告した行動はプレイヤーの行動で変わらないので、プレイヤーの行動で条件を満たした場合は、予告済みの行動が実行されたあと、次にそのカードが予告されます。「一度だけ」をオンにすると、この戦闘で1回しか発動しません。</p>
+      <p class="hint">条件を満たしたとき、通常の抽選の代わりに、指定したカードを次の行動として確定させます。上にあるものほど優先されます。判定は、敵が次の行動を予告するとき（敵の行動の直後）に行います。一度予告した行動はプレイヤーの行動で変わらないので、プレイヤーの行動で条件を満たした場合は、予告済みの行動が実行されたあと、次にそのカードが予告されます。「一度だけ」をオンにすると、この戦闘で1回しか発動しません。下の「連続行動」と同じ予告で重なったときの扱いは、確定行動ごとに選べます。</p>
       <div id="em-forced-list"></div>
       <button type="button" id="em-forced-add">＋ 条件付きの確定行動を追加</button>
+      <div class="section-label">連続行動</div>
+      <p class="hint">「この行動が選ばれたら、次は必ずこの行動を使う」を設定します。抽選で選ばれた場合も、条件付きの確定行動で選ばれた場合も同じです。選ばれた行動が実行されたあとの次の予告で、設定した行動が決まります。連続行動で選ばれた行動にさらに連続行動を設定すると、3連続以上もつなげられます。同じ行動を複数設定した場合は、上のものが使われます。</p>
+      <div id="em-chain-list"></div>
+      <button type="button" id="em-chain-add">＋ 連続行動を追加</button>
       <div class="section-label">撃破時のドロップ</div>
       <p class="hint">この敵を倒すと必ず出現しますが、受け取るかどうかはプレイヤーが選べます（カードは個別に、レリックは「手に入れる／見送る」）。レリックは未所持のときだけ出ます。未設定のエリート・ボスは従来どおりランダムなレリックが出ます。</p>
       <div class="field"><label>ドロップするレリック</label>
@@ -2854,6 +2860,8 @@ function openEnemyModal(enemy, isNew){
       <div class="field" style="margin-top:8px;"><label>確定させる行動（カード）</label><select data-f="cardId">
         ${movePool.map(c=>`<option value="${c.id}" ${c.id===rule.cardId?'selected':''}>${c.name}</option>`).join('')}</select></div>
       <div class="checkbox-field"><input type="checkbox" id="em-forced-once-${i}" data-f="once" ${rule.once?'checked':''}><label for="em-forced-once-${i}">この戦闘で一度だけ</label></div>
+      <div class="field" style="margin-top:8px;"><label>連続行動と同じ予告で重なったとき</label><select data-f="conflict">
+        ${Object.keys(CONFLICT_LABELS).map(k=>`<option value="${k}" ${(rule.conflict||'priority')===k?'selected':''}>${CONFLICT_LABELS[k]}</option>`).join('')}</select></div>
     </div>`;
   }
   function renderForcedList(){
@@ -2892,8 +2900,46 @@ function openEnemyModal(enemy, isNew){
     });
   })();
   qs('#em-forced-add',overlay).onclick = ()=>{
-    en.forcedMoves.push({subject:'selfHpPct', cmp:'lte', value:50, tag:'', cardId:(movePool[0]||{}).id||'strike', once:true});
+    en.forcedMoves.push({subject:'selfHpPct', cmp:'lte', value:50, tag:'', cardId:(movePool[0]||{}).id||'strike', once:true, conflict:'priority'});
     renderForcedList();
+  };
+
+  function chainRowHTML(ch, i){
+    const opts = id=> movePool.map(c=>`<option value="${c.id}" ${c.id===id?'selected':''}>${c.name}</option>`).join('');
+    return `<div class="ev-eff" data-idx="${i}">
+      <div class="ev-eff-head"><span>連続行動 ${i+1}</span><button type="button" class="ghost em-chain-del">削除</button></div>
+      <div class="ev-eff-grid">
+        <div><label>この行動が選ばれたら</label><select data-f="fromId">${opts(ch.fromId)}</select></div>
+        <div><label>次は必ずこの行動</label><select data-f="toId">${opts(ch.toId)}</select></div>
+      </div>
+    </div>`;
+  }
+  function renderChainList(){
+    const box = qs('#em-chain-list',overlay);
+    box.innerHTML = en.chains.length ? en.chains.map(chainRowHTML).join('') : `<p class="hint">連続行動はありません。</p>`;
+  }
+  renderChainList();
+  (function(){
+    const box = qs('#em-chain-list',overlay);
+    box.addEventListener('change', e=>{
+      const row = e.target.closest && e.target.closest('[data-idx]');
+      const f = e.target.dataset && e.target.dataset.f;
+      const ch = row && en.chains[parseInt(row.dataset.idx,10)];
+      if(ch && f) ch[f] = e.target.value;
+    });
+    box.addEventListener('click', e=>{
+      const b = e.target.closest('.em-chain-del');
+      if(!b) return;
+      en.chains.splice(parseInt(b.closest('[data-idx]').dataset.idx,10),1);
+      renderChainList();
+    });
+  })();
+  qs('#em-chain-add',overlay).onclick = ()=>{
+    const first = (movePool[0]||{}).id||'strike';
+    const used = new Set(en.chains.map(c=>c.fromId));
+    const from = (movePool.find(c=>!used.has(c.id))||{}).id || first;
+    en.chains.push({fromId:from, toId:first});
+    renderChainList();
   };
 
   qs('#em-cancel',overlay).onclick = ()=> overlay.remove();
@@ -2901,6 +2947,7 @@ function openEnemyModal(enemy, isNew){
     const updated = {
       startCards: en.startCards.slice(),
       forcedMoves: cleanForcedMoves(en.forcedMoves),
+      chains: cleanChains(en.chains),
       dropRelicId: qs('#em-drop-relic',overlay).value,
       dropCardIds: en.dropCardIds.slice(),
       id: en.id,
@@ -3804,8 +3851,21 @@ function cleanForcedMoves(list){
   return (Array.isArray(list) ? list : []).filter(x=> x && typeof x==='object' && typeof x.cardId==='string' && S.cards.some(c=>c.id===x.cardId)).map(x=>{
     const subj = FORCED_SUBJECTS.find(s=>s.key===x.subject) || FORCED_SUBJECTS[0];
     return {subject:subj.key, cmp: subj.cmps.includes(x.cmp) ? x.cmp : subj.cmps[0], value: clampInt(x.value,0,9999,0),
-      tag: cleanTag(x.tag), cardId:x.cardId, once: !!x.once};
+      tag: cleanTag(x.tag), cardId:x.cardId, once: !!x.once,
+      conflict: CONFLICT_LABELS[x.conflict] ? x.conflict : 'priority'};
   });
+}
+// ---- 連続行動 ----
+// 「この行動が選ばれたら（抽選でも条件でも）、次は必ずこの行動」。選ばれた行動が実行されたあとの次の予告で適用される。
+// 条件付きの確定行動と同じ予告で重なったときの扱いは、確定行動ごとに選ぶ。
+const CONFLICT_LABELS = {
+  priority:'条件の行動を優先する（連続行動は取り消し）',
+  ignore:'条件を無視する（連続行動を実行。条件の行動は消費しない）',
+  defer:'条件の行動を先送りする（今回は連続行動、次回に条件の行動）',
+};
+function cleanChains(list){
+  return (Array.isArray(list) ? list : []).filter(x=> x && typeof x==='object' && S.cards.some(c=>c.id===x.fromId) && S.cards.some(c=>c.id===x.toId))
+    .map(x=>({fromId:x.fromId, toId:x.toId}));
 }
 function forcedConditionMet(r, e, rule){
   const p = r.player, v = rule.value|0;
@@ -3821,13 +3881,24 @@ function forcedConditionMet(r, e, rule){
   }
   return false;
 }
-function pickForcedMove(r, e){
+function pickForcedMove(r, e, followPending){
   const rules = e.forcedMoves || [];
+  // 先送りされた確定行動は、次の予告で最優先に使う（先送りは1回だけ）
+  if(e.deferredIdx>=0){
+    const i = e.deferredIdx; e.deferredIdx = -1;
+    if(rules[i] && cardById(rules[i].cardId)) return {idx:i, rule:rules[i], fromDefer:true};
+  }
   for(let i=0;i<rules.length;i++){
     const rule = rules[i];
     if(!rule || !cardById(rule.cardId)) continue;
     if(rule.once && e.forcedUsed && e.forcedUsed[i]) continue;
-    if(forcedConditionMet(r, e, rule)) return {idx:i, rule};
+    if(!forcedConditionMet(r, e, rule)) continue;
+    if(followPending){
+      const mode = rule.conflict || 'priority';
+      if(mode==='ignore') continue;                          // 無視：この条件は成立しなかったことにする
+      if(mode==='defer'){ e.deferredIdx = i; return {defer:true}; } // 先送り：今回は連続行動、次回にこの行動
+    }
+    return {idx:i, rule};
   }
   return null;
 }
@@ -3855,22 +3926,35 @@ function runEnemyStartCards(r){
 function rollEnemyMove(e){
   e.rollCount = (e.rollCount||0) + 1;
   e.nextForced = false;
-  const forced = S.run ? pickForcedMove(S.run, e) : null;
-  if(forced){
+  const follow = (e.followId && cardById(e.followId)) ? e.followId : '';   // 前の行動による「次は必ずこの行動」
+  e.followId = '';
+  const forced = S.run ? pickForcedMove(S.run, e, !!follow) : null;
+  let id = '';
+  if(forced && !forced.defer){
     if(forced.rule.once){ e.forcedUsed = e.forcedUsed || {}; e.forcedUsed[forced.idx] = true; }
     e.nextForced = true;
-    return forced.rule.cardId;
+    id = forced.rule.cardId;
+  } else if(follow){
+    id = follow;
+  } else {
+    const deck = e.deck || [];
+    if(deck.length===0) id = 'strike';
+    else {
+      const pool = deck.slice();
+      const drawn = [];
+      for(let i=0;i<3 && pool.length>0;i++){
+        const idx = Math.floor(Math.random()*pool.length);
+        drawn.push(pool[idx]);
+        pool.splice(idx, 1);
+      }
+      id = weightedPickFrom(drawn).cardId;
+    }
   }
-  const deck = e.deck || [];
-  if(deck.length===0) return 'strike';
-  const pool = deck.slice();
-  const drawn = [];
-  for(let i=0;i<3 && pool.length>0;i++){
-    const idx = Math.floor(Math.random()*pool.length);
-    drawn.push(pool[idx]);
-    pool.splice(idx, 1);
-  }
-  return weightedPickFrom(drawn).cardId;
+  // 選ばれた行動に連続行動が設定されていれば、次の予告に持ち越す。
+  // 先送りされた確定行動が使われた場合、取り残された連続行動は消さずに残す。
+  const ch = (e.chains||[]).find(c=> c.fromId===id && cardById(c.toId));
+  e.followId = ch ? ch.toId : ((forced && forced.fromDefer) ? follow : '');
+  return id;
 }
 
 function makeEnemy(floorIndex){
@@ -3895,6 +3979,7 @@ function makeEnemy(floorIndex){
     customStatus: {}, triggers: [], startEffect: t.startEffect || {},
     dropRelicId: t.dropRelicId || '', dropCardIds: (t.dropCardIds||[]).slice(),
     startCards: (t.startCards||[]).slice(), forcedMoves: (t.forcedMoves||[]).map(x=>({...x})), forcedUsed: {}, rollCount: 0, nextForced: false,
+    chains: (t.chains||[]).map(x=>({...x})), followId: '', deferredIdx: -1,
   };
   runtimeEnemy.nextMoveId = rollEnemyMove(runtimeEnemy);
   return runtimeEnemy;
@@ -4097,7 +4182,7 @@ function beginFloor(){
   applyNextCombatEffects(r);
   runEnemyStartCards(r);
   // 戦闘開始時の状態（開始時の効果・開始時に使ったカード）を踏まえて、最初の予告を引き直す
-  r.enemy.rollCount = 0; r.enemy.forcedUsed = {};
+  r.enemy.rollCount = 0; r.enemy.forcedUsed = {}; r.enemy.followId = ''; r.enemy.deferredIdx = -1;
   r.enemy.nextMoveId = rollEnemyMove(r.enemy);
   startPlayerTurn(true);
   fireRelicTiming(r, 'combatStart');
