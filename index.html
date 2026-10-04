@@ -4793,12 +4793,10 @@ const RELIC_META_FIELDS = [
 // those every single combat or every single turn would spiral out of control).
 function relicFieldDefsFor(timing){
   if(timing==='onPickup'){
-    // Custom statuses are excluded from onPickup: with no combat happening, granting
-    // enemy-targeted ones makes no sense, and self-targeted recurring effects picked up
-    // once outside combat would be an odd, hard-to-read one-shot. They're available for
-    // the recurring timings below instead.
+    // カスタム状態は、手に入れた後の「次の戦闘の開始時」に付与される（戦闘外では付与できないため）。
     const allowed = ['permStrength','permDexterity','permMetallicize','permThorns','heal'];
-    return [...EFFECT_FIELD_DEFS.filter(d=>allowed.includes(d.key)), ...RELIC_META_FIELDS];
+    const pickupStatusDefs = customStatusFieldDefs().map(d=>({...d, label:'次の戦闘の開始時: '+d.label, desc:(v)=>'次の戦闘の開始時に'+d.desc(v)}));
+    return [...EFFECT_FIELD_DEFS.filter(d=>allowed.includes(d.key)), ...pickupStatusDefs, ...RELIC_META_FIELDS];
   }
   if(timing==='combatEnd') return combatEndFieldDefs();
   // Recurring timings: the full card vocabulary, plus permanent gains (permanent stats,
@@ -4827,7 +4825,7 @@ function combatEndFieldDefs(){
   return out.concat(RELIC_META_FIELDS);
 }
 function relicTimingHint(t){
-  if(t==='onPickup') return '';
+  if(t==='onPickup') return 'カスタム状態は、手に入れたあと最初の戦闘の開始時に付与されます（状態の「標準の付与先」が「相手」なら敵に付与）。';
   if(t==='combatEnd') return '「次の戦闘」の項目は、次の戦闘の開始時にだけ反映されます。永続の強化・最大HP・ゴールドなどは、発動のたびに加算されます。';
   return '永続の強化・最大HPなどは、発動のたびに加算されます（ターン開始時などに設定すると急速に大きくなります）。エネルギー・ドローの永続増加は、発動した戦闘中にもすぐ反映されます。';
 }
@@ -4945,7 +4943,15 @@ function applyRelicEffect(r, relic){
   if((relic.timing||'onPickup') !== 'onPickup') return; // recurring relics fire later, from fireRelicTiming
   const e = relic.effect || {};
   applyRelicMeta(r, relic, e, 'pickup');
-  applyEffectValues(r, {name: relic.name, ...e});
+  const eMain = {...e};
+  customStatusFieldDefs().forEach(def=>{ delete eMain[def.key]; });   // 状態は、次の戦闘の開始時に付与する
+  applyEffectValues(r, {name: relic.name, ...eMain});
+  customStatusFieldDefs().forEach(def=>{
+    const amt = e[def.key];
+    if(!(amt>0)) return;
+    const st = (S.customStatuses||[]).find(x=>x.id===def._statusId);
+    if(st) queueNextCombat(r, st.target==='opponent' ? 'ce' : 'cp', st.id, amt);
+  });
 }
 
 function renderRelicReward(){
