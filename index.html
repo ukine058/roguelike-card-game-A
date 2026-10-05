@@ -4337,7 +4337,20 @@ function showIntroThen(next){
     <p style="color:var(--parchment); max-width:560px; margin:18px auto; line-height:1.9; white-space:pre-wrap;">${escapeHtml(t)}</p>
     <div style="margin-top:20px;"><button class="primary" id="btn-intro-go">冒険を始める</button></div>
   </div>`;
-  qs('#btn-intro-go').onclick = next;
+  const go = qs('#btn-intro-go');
+  go.onclick = ()=>{
+    if(go.dataset.busy) return;
+    go.dataset.busy = '1';
+    try{ next(); }
+    catch(err){
+      // 開始処理で例外が出ても、ボタンが「押せないまま」にならないよう、原因を画面に出して再試行できるようにする
+      console.error(err);
+      delete go.dataset.busy;
+      let box = qs('#intro-error');
+      if(!box){ box = document.createElement('p'); box.id = 'intro-error'; box.style.cssText = 'color:#ff8f86; font-size:12px; margin-top:12px;'; go.parentNode.appendChild(box); }
+      box.textContent = '開始処理でエラーが発生しました: ' + (err && err.message ? err.message : err);
+    }
+  };
 }
 function afterStartRelics(){
   if(S.settings.startPickEnabled){ S.screen='startPick'; renderStartPick(); return; }
