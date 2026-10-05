@@ -135,9 +135,9 @@
   .combatant.enemy .portrait{ border-color:var(--ember-dim); }
   .combatant.player .portrait{ border-color:var(--steel-dim); }
   .combatant .cname{ font-family:var(--font-display); font-size:15px; margin-bottom:4px;}
-  .hpbar-wrap{ background:#000; border:1px solid var(--line); border-radius:10px; height:16px; overflow:hidden; position:relative; }
+  .hpbar-wrap{ background:#000; border:1px solid var(--line); border-radius:10px; height:20px; overflow:hidden; position:relative; }
   .hpbar-fill{ height:100%; background:linear-gradient(90deg,#7a2020,var(--hp-red)); transition:width .3s ease; }
-  .hpbar-text{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-family:var(--font-en); font-weight:700; text-shadow:0 1px 2px #000;}
+  .hpbar-text{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:13px; font-family:var(--font-en); font-weight:700; text-shadow:0 1px 2px #000;}
   .statuses{ display:flex; gap:5px; justify-content:center; margin-top:6px; flex-wrap:wrap;}
   .status-chip{ font-size:10.5px; background:var(--bg-panel-raised); border:1px solid var(--line); border-radius:10px; padding:2px 7px;}
   .intent{ margin-top:8px; font-size:12px; color:var(--parchment-dim); background:var(--bg-panel-raised); border:1px solid var(--line); border-radius:5px; padding:5px 8px; min-height:16px;}
@@ -149,6 +149,46 @@
   .intent.lethal{ border-color:#c0504a; box-shadow:0 0 0 1px #c0504a66 inset;}
   .intent .warn{ color:#ff8f86; font-weight:700;}
 
+  :root{ --blk:#5CC8E8; --lg-sc:#E58FB5; --lg-fp:#F0675A; --lg-fm:#6FA8F0; --lg-n:#F4ECD8; }
+  .lg-head{ color:var(--lg-n); font-weight:700; }
+  .lg-line{ display:block; padding-left:1.2em; }
+  .lg-line .lg-line{ padding-left:1em; }
+  .lg-n{ color:var(--lg-n); } .lg-mul{ margin-left:.2em; }
+  .lg-sc{ color:var(--lg-sc); } .lg-fp{ color:var(--lg-fp); } .lg-fm{ color:var(--lg-fm); }
+  .lg-blk{ color:var(--blk); }
+  .lg-fp,.lg-fm{ cursor:help; }
+  .blk-auto{ opacity:.85; font-weight:600; }
+  .log-btns{ display:flex; gap:6px; }
+  #app:has(.log-right){ max-width:1360px; }
+  .battle-screen.log-right{ display:flex; gap:16px; align-items:flex-start; }
+  .battle-screen.log-right .battle-main{ flex:1; min-width:0; }
+  .battle-log{ width:360px; flex-shrink:0; position:sticky; top:12px; }
+  .battle-log .log-box{ max-height:calc(100vh - 90px); min-height:240px; resize:none; }
+  @media (max-width: 960px){
+    .battle-screen.log-right{ flex-direction:column; }
+    .battle-log{ width:100%; position:static; }
+    .battle-log .log-box{ max-height:240px; }
+  }
+  .blockline{ margin:0 auto; width:max-content; min-width:96px; font-size:12px; border:1px solid rgba(92,200,232,.25); color:rgba(92,200,232,.45); border-radius:10px; padding:2px 10px; }
+  .blockline.on{ color:var(--blk); border-color:var(--blk); background:rgba(92,200,232,.12); font-weight:700; }
+  /* ブロックをHPバー内に表示 */
+  .hpbar-wrap.has-block{ border-color:var(--blk); box-shadow:0 0 6px rgba(92,200,232,.45); }
+  .hpbar-text{ gap:5px; }
+  .hpbar-block{ display:inline-flex; align-items:center; gap:2px; padding:0 6px; height:15px; line-height:15px; border-radius:8px; font-size:inherit; font-weight:700; color:var(--blk); white-space:nowrap; text-shadow:none; border:1px solid var(--blk); background:linear-gradient(rgba(92,200,232,.12),rgba(92,200,232,.12)), #0b1a20; }
+  .hpbar-block .blk-auto{ font-size:inherit; font-weight:inherit; opacity:1; }
+  .combatant .statuses{ min-height:26px; }
+  .combatant.enemy{ position:relative; }
+  .intent{ position:relative; cursor:pointer; }
+  .intent-main{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.35; min-height:2.7em; }
+  .intent .ip-calc{ color:var(--lg-n); margin-left:.15em; }
+  .intent-pop{ display:none; position:absolute; top:calc(100% + 6px); right:0; width:min(320px,86vw); z-index:30; text-align:left; background:var(--bg-panel); border:1px solid var(--gold); border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.5; color:var(--parchment); box-shadow:0 10px 24px rgba(0,0,0,.6); max-height:60vh; overflow-y:auto; cursor:default; }
+  .intent:hover .intent-pop, .intent.open .intent-pop{ display:block; }
+  .ip-title{ color:var(--gold); font-weight:700; margin-bottom:2px; }
+  .ip-parts{ color:var(--parchment-dim); margin-bottom:4px; }
+  .ip-row{ padding-left:.2em; }
+  .ip-k{ color:var(--parchment-dim); margin-right:.4em; }
+  .ip-sum{ margin-top:4px; padding-top:4px; border-top:1px dashed var(--line); }
+  .ip-note{ font-size:11px; color:var(--parchment-dim); margin-top:2px; }
   .vsmark{ font-family:var(--font-en); font-size:26px; color:var(--line); margin-top:36px; }
 
   .hand-zone{ background:var(--bg-panel); border:1px solid var(--line); border-radius:10px; padding:16px 10px; margin-top:8px;}
@@ -1852,9 +1892,11 @@ function allEffectFieldDefs(){ return EFFECT_FIELD_DEFS.concat(customStatusField
    the enemy as the actor instead of the player. */
 function resolveEnemyMoveEffects(r, e, c){
   const prior = (e.triggers||[]).slice();   // この行動より前に仕込まれていた構え
+  logGroupBegin(`${e.name}：${cardIcon(c)}${c.name}`);
   resolveEnemyMoveBody(r, e, c);
   // 「カードを使うたび」の構え：敵自身がカードを使ったときに発動（今使ったカードで仕込んだ構えは対象外）
   fireEnemyTriggers(r, 'cardUsed', {card: c}, prior);
+  logGroupEnd();
 }
 function resolveEnemyMoveBody(r, e, c){
   // 仕込み（トリガー発動）のカードは、行動した時点では効果を出さず、きっかけを待つ
@@ -1884,7 +1926,7 @@ function applyEnemyCardPayload(r, e, c){
       applyDamageToPlayer(dmg + e.strength, c.pierce);
       const lh = r.lastHit;
       if(lh && lh.total>0){ (r.damageEvents = r.damageEvents||[]).push({...lh}); }
-      logEnemyHit(e, c, lh, dmg, e.strength, replays>1 ? `${rep+1}/${replays}発目` : '');
+      logEnemyHit(e, c, lh, {base:c.damage||0, scale:dmg-(c.damage||0), str:e.strength});
       const st = r.enemyTurnStat;
       if(st && lh && lh.total>0){ st.hits++; st.total += lh.total; st.blocked += lh.blocked; st.hpLoss += lh.hpBefore - lh.hpAfter; }
       // 吸収: ブロックで防がれた分は回復しない。実際にHPを減らせた分だけ回復する。
@@ -1903,39 +1945,48 @@ function applyEnemyCardPayload(r, e, c){
     const blk = V('block');
     if(blk>0){
       const total = Math.max(0, blk + customBlockGainBonus(e));
+      const bBefore = e.block;
       e.block += total;
-      pushLog(`${e.name}は防御態勢。ブロック+${total}（現在${e.block}）。`);
+      logBlockGain(`${e.name}：${c.name}`, e.name, 'e', total, {base:c.block||0, scale:blk-(c.block||0), flats:[{v:customBlockGainBonus(e), label:'状態'}]}, bBefore, e.block);
     }
+    const Lg = o=> logStat({name:`${e.name}：${c.name}`, ...o});
     const heal = V('heal');
-    if(heal>0) e.hp = Math.min(e.maxHp, e.hp + heal);
-    const strength = V('strength') + V('permStrength');
-    if(strength>0){ e.strength += strength; pushLog(`${e.name}は力を高めた！ 強化+${strength}。`); }
-    const dexterity = V('dexterity') + V('permDexterity');
-    if(dexterity>0) e.dexterity += dexterity;
-    const metallicize = V('metallicize') + V('permMetallicize');
-    if(metallicize>0) e.metallicize = (e.metallicize||0) + metallicize;
-    const thorns = V('thorns') + V('permThorns');
-    if(thorns>0) e.thorns += thorns;
-    const weak = V('weak');
-    if(weak>0){ p.weak += weak; pushLog(`${e.name}の効果で弱体+${weak}。`); }
-    const vulnerable = V('vulnerable');
-    if(vulnerable>0){ p.vulnerable += vulnerable; pushLog(`${e.name}の効果で脆弱+${vulnerable}。`); }
-    const poison = V('poison');
-    if(poison>0){ p.poison += poison; pushLog(`${e.name}の効果で毒+${poison}。`); }
+    if(heal>0){
+      const before = e.hp; e.hp = Math.min(e.maxHp, e.hp + heal);
+      Lg({who:e.name, key:'e:hp', eff:'回復', v:heal, base:c.heal||0, before, after:e.hp, state:'HP'});
+    }
+    const eGain = (ent, who, ek, field, v, base, eff, state, legacy)=>{
+      if(v<=0) return;
+      const before = ent[field]||0; ent[field] = before + v;
+      Lg({who, key:ek+':'+field, eff, v, base, before, after:ent[field], state:state||eff, legacy});
+    };
+    eGain(e, e.name, 'e', 'strength', V('strength') + V('permStrength'), (c.strength||0)+(c.permStrength||0), '強化', '強化', v=>`${e.name}は力を高めた！ 強化+${v}。`);
+    eGain(e, e.name, 'e', 'dexterity', V('dexterity') + V('permDexterity'), (c.dexterity||0)+(c.permDexterity||0), '器用');
+    eGain(e, e.name, 'e', 'metallicize', V('metallicize') + V('permMetallicize'), (c.metallicize||0)+(c.permMetallicize||0), '自動ブロック');
+    eGain(e, e.name, 'e', 'thorns', V('thorns') + V('permThorns'), (c.thorns||0)+(c.permThorns||0), '棘');
+    eGain(p, 'あなた', 'p', 'weak', V('weak'), c.weak||0, '弱体', '弱体', v=>`${e.name}の効果で弱体+${v}。`);
+    eGain(p, 'あなた', 'p', 'vulnerable', V('vulnerable'), c.vulnerable||0, '脆弱', '脆弱', v=>`${e.name}の効果で脆弱+${v}。`);
+    eGain(p, 'あなた', 'p', 'poison', V('poison'), c.poison||0, '毒', '毒', v=>`${e.name}の効果で毒+${v}。`);
     customStatusFieldDefs().forEach(def=>{
-      const amt = (c[def.key]||0) + scaleBonus(c, def.key, 'enemy');   // 負の値は、スタックを減らす
+      const base0 = c[def.key]||0;
+      const amt = base0 + scaleBonus(c, def.key, 'enemy');   // 負の値は、スタックを減らす
       const stDef = (S.customStatuses||[]).find(s=>s.id===def._statusId);
       if(!stDef) return;
       const side = csGrantSide(c, stDef);
       const extra = side==='both' ? ((c['csX_'+stDef.id])|0) : 0;
       if(amt===0 && extra===0) return;
+      const nm = `${stDef.emoji||''}${stDef.name}`;
+      const give = (ent, who, ek, n, base)=>{
+        const before = customStatusStacks(ent, stDef.id);
+        addCustomStatusStacks(ent, stDef.id, n);
+        Lg({who, key:`${ek}:cs:${stDef.id}`, eff:nm, v:n, base, before, after:customStatusStacks(ent, stDef.id), state:nm});
+      };
       if(side==='both'){
-        if(amt!==0) addCustomStatusStacks(e, stDef.id, amt);       // 基本値＝行動する敵本人への量
-        if(extra!==0) addCustomStatusStacks(p, stDef.id, extra);   // 相手（プレイヤー）への量
-      } else {
-        addCustomStatusStacks(side==='opponent' ? p : e, stDef.id, amt);
-      }
-      pushLog(`${e.name}: ${def.desc(amt, c)}`);
+        if(amt!==0) give(e, e.name, 'e', amt, base0);       // 基本値＝行動する敵本人への量
+        if(extra!==0) give(p, 'あなた', 'p', extra, extra);   // 相手（プレイヤー）への量
+      } else if(side==='opponent') give(p, 'あなた', 'p', amt, base0);
+      else give(e, e.name, 'e', amt, base0);
+      if(!LOG_UNIFIED) pushLog(`${e.name}: ${def.desc(amt, c)}`);
     });
     applyStatusOp(c.statusOp, e, p, e.name);
   }
@@ -2414,10 +2465,11 @@ function resolveCardOp(r, op, done){
 // relic timed-effect resolver, which doesn't want a repeat loop or the "already dead"
 // early-exit that combat-end relics would otherwise trip on.
 function applyEffectValues(r, c){
-  const dmgVal = Math.max(0, (c.damage||0) + scaleBonus(c,'damage'));
+  const dmgBase = c.damage||0;
+  const dmgVal = Math.max(0, dmgBase + scaleBonus(c,'damage'));
   if(dmgVal>0){
     const strTotal = r.player.strength + r.player.permStrength;
-    applyDamageToEnemy(dmgVal + strTotal, c.pierce, h=> logPlayerHit(c, h, dmgVal, strTotal));
+    applyDamageToEnemy(dmgVal + strTotal, c.pierce, h=> logPlayerHit(c, h, dmgBase, dmgVal-dmgBase, strTotal));
     // 吸収: ブロックで防がれた分は回復しない。実際に敵のHPを減らせた分だけ回復する。
     if(c.lifesteal){
       const lh = r.lastEnemyHit, heal = lh ? lh.hpLoss : 0;
@@ -2435,73 +2487,87 @@ function applyEffectValues(r, c){
   const blockVal = Math.max(0, (c.block||0) + scaleBonus(c,'block'));
   if(blockVal>0){
     const total = Math.max(0, blockVal + r.player.dexterity + r.player.permDexterity + customBlockGainBonus(r.player));
+    const bBefore = r.player.block;
     r.player.block += total;
-    pushLog(`${c.name}: ブロック+${total}（現在${r.player.block}）。`);
+    logBlockGain(c.name, 'あなた', 'p', total, {base:c.block||0, scale:blockVal-(c.block||0), flats:[{v:r.player.dexterity + r.player.permDexterity, label:'器用'},{v:customBlockGainBonus(r.player), label:'状態'}]}, bBefore, r.player.block);
   }
-  const drawVal = Math.max(0, (c.draw||0) + scaleBonus(c,'draw'));
-  if(drawVal>0){ drawCards(drawVal); pushLog(`${c.name}: カードを${drawVal}枚引いた。`); }
+  const P = r.player, E = r.enemy;
+  const val = k=> Math.max(0, (c[k]||0) + scaleBonus(c,k));
+  const L = o=> logStat({name:c.name, ...o});
+  // 数値を足す効果（強化・弱体・毒など）の共通処理
+  const gain = (who, ent, ek, field, key, eff, state, legacy)=>{
+    const base = c[key]||0, v = val(key);
+    if(v<=0) return;
+    const before = ent[field]||0; ent[field] = before + v;
+    L({who, key:ek+':'+field, eff, v, base, before, after:ent[field], state:state||eff, legacy});
+  };
+  const drawVal = val('draw');
+  if(drawVal>0){
+    const before = r.hand.length; drawCards(drawVal);
+    L({who:'あなた', key:'p:hand', eff:'ドロー', v:drawVal, base:c.draw||0, before, after:r.hand.length, state:'手札', legacy:`${c.name}: カードを${drawVal}枚引いた。`});
+  }
   const energyVal = (c.energy||0) + scaleBonus(c,'energy');
-  if(energyVal){ r.player.energy += energyVal; }
-  const strengthVal = Math.max(0, (c.strength||0) + scaleBonus(c,'strength'));
-  if(strengthVal>0){ r.player.strength += strengthVal; pushLog(`${c.name}: 強化+${strengthVal}（この戦闘中）。`); }
-  const permStrengthVal = Math.max(0, (c.permStrength||0) + scaleBonus(c,'permStrength'));
-  if(permStrengthVal>0){ r.player.permStrength += permStrengthVal; pushLog(`${c.name}: 強化+${permStrengthVal}（永続）。`); }
-  const dexterityVal = Math.max(0, (c.dexterity||0) + scaleBonus(c,'dexterity'));
-  if(dexterityVal>0){ r.player.dexterity += dexterityVal; pushLog(`${c.name}: 器用+${dexterityVal}（この戦闘中）。`); }
-  const permDexterityVal = Math.max(0, (c.permDexterity||0) + scaleBonus(c,'permDexterity'));
-  if(permDexterityVal>0){ r.player.permDexterity += permDexterityVal; pushLog(`${c.name}: 器用+${permDexterityVal}（永続）。`); }
-  const metallicizeVal = Math.max(0, (c.metallicize||0) + scaleBonus(c,'metallicize'));
-  if(metallicizeVal>0){ r.player.metallicize += metallicizeVal; }
-  const permMetallicizeVal = Math.max(0, (c.permMetallicize||0) + scaleBonus(c,'permMetallicize'));
-  if(permMetallicizeVal>0){ r.player.permMetallicize += permMetallicizeVal; }
-  const thornsVal = Math.max(0, (c.thorns||0) + scaleBonus(c,'thorns'));
-  if(thornsVal>0){ r.player.thorns += thornsVal; }
-  const permThornsVal = Math.max(0, (c.permThorns||0) + scaleBonus(c,'permThorns'));
-  if(permThornsVal>0){ r.player.permThorns += permThornsVal; }
-  const weakVal = Math.max(0, (c.weak||0) + scaleBonus(c,'weak'));
-  if(weakVal>0){ r.enemy.weak += weakVal; }
-  const vulnVal = Math.max(0, (c.vulnerable||0) + scaleBonus(c,'vulnerable'));
-  if(vulnVal>0){ r.enemy.vulnerable += vulnVal; }
-  const poisonVal = Math.max(0, (c.poison||0) + scaleBonus(c,'poison'));
-  if(poisonVal>0){ r.enemy.poison += poisonVal; }
-  const stunVal = Math.max(0, (c.stun||0) + scaleBonus(c,'stun'));
-  if(stunVal>0){ r.enemy.stun = (r.enemy.stun||0) + stunVal; pushLog(`${c.name}: 敵を${stunVal}ターン麻痺させた。`); }
-  const reduceStrVal = Math.max(0, (c.reduceEnemyStrength||0) + scaleBonus(c,'reduceEnemyStrength'));
+  if(energyVal){
+    const before = P.energy; P.energy += energyVal;
+    L({who:'あなた', key:'p:energy', eff:'エネルギー', v:energyVal, base:c.energy||0, before, after:P.energy});
+  }
+  gain('あなた', P, 'p', 'strength', 'strength', '強化', '強化(戦闘中)', v=>`${c.name}: 強化+${v}（この戦闘中）。`);
+  gain('あなた', P, 'p', 'permStrength', 'permStrength', '強化', '強化(永続)', v=>`${c.name}: 強化+${v}（永続）。`);
+  gain('あなた', P, 'p', 'dexterity', 'dexterity', '器用', '器用(戦闘中)', v=>`${c.name}: 器用+${v}（この戦闘中）。`);
+  gain('あなた', P, 'p', 'permDexterity', 'permDexterity', '器用', '器用(永続)', v=>`${c.name}: 器用+${v}（永続）。`);
+  gain('あなた', P, 'p', 'metallicize', 'metallicize', '自動ブロック', '自動ブロック(戦闘中)');
+  gain('あなた', P, 'p', 'permMetallicize', 'permMetallicize', '自動ブロック', '自動ブロック(永続)');
+  gain('あなた', P, 'p', 'thorns', 'thorns', '棘', '棘(戦闘中)');
+  gain('あなた', P, 'p', 'permThorns', 'permThorns', '棘', '棘(永続)');
+  gain(E.name, E, 'e', 'weak', 'weak', '弱体');
+  gain(E.name, E, 'e', 'vulnerable', 'vulnerable', '脆弱');
+  gain(E.name, E, 'e', 'poison', 'poison', '毒');
+  gain(E.name, E, 'e', 'stun', 'stun', '麻痺', '麻痺', v=>`${c.name}: 敵を${v}ターン麻痺させた。`);
+  const reduceStrVal = val('reduceEnemyStrength');
   if(reduceStrVal>0){
-    r.enemy.strength = Math.max(0, r.enemy.strength - reduceStrVal);
+    const before = E.strength;
+    E.strength = Math.max(0, E.strength - reduceStrVal);
     // タグ「強化」を持つカスタム状態も、同じ量だけスタックが減る
     (S.customStatuses||[]).forEach(st=>{
-      if((st.tags||[]).includes('強化') && customStatusStacks(r.enemy, st.id)>0) addCustomStatusStacks(r.enemy, st.id, -reduceStrVal);
+      if((st.tags||[]).includes('強化') && customStatusStacks(E, st.id)>0) addCustomStatusStacks(E, st.id, -reduceStrVal);
     });
-    pushLog(`${c.name}: 敵の強化を${reduceStrVal}減少させた。`);
+    L({who:E.name, key:'e:strength', eff:'強化減少', v:reduceStrVal, base:c.reduceEnemyStrength||0, before, after:E.strength, state:'強化', legacy:`${c.name}: 敵の強化を${reduceStrVal}減少させた。`});
   }
-  const selfWeakVal = Math.max(0, (c.selfWeak||0) + scaleBonus(c,'selfWeak'));
-  if(selfWeakVal>0){ r.player.weak += selfWeakVal; }
-  const selfVulnVal = Math.max(0, (c.selfVulnerable||0) + scaleBonus(c,'selfVulnerable'));
-  if(selfVulnVal>0){ r.player.vulnerable += selfVulnVal; }
-  const selfPoisonVal = Math.max(0, (c.selfPoison||0) + scaleBonus(c,'selfPoison'));
-  if(selfPoisonVal>0){ r.player.poison += selfPoisonVal; }
-  const healVal = Math.max(0, (c.heal||0) + scaleBonus(c,'heal'));
-  if(healVal>0){ r.player.hp = Math.min(r.player.maxHp, r.player.hp + healVal); }
-  const regenVal = Math.max(0, (c.regen||0) + scaleBonus(c,'regen'));
-  if(regenVal>0){ r.player.regen = (r.player.regen||0) + regenVal; }
-  const loseHpVal = Math.max(0, (c.loseHp||0) + scaleBonus(c,'loseHp'));
-  if(loseHpVal>0){ r.player.hp = Math.max(0, r.player.hp - loseHpVal); }
+  gain('あなた', P, 'p', 'weak', 'selfWeak', '弱体');
+  gain('あなた', P, 'p', 'vulnerable', 'selfVulnerable', '脆弱');
+  gain('あなた', P, 'p', 'poison', 'selfPoison', '毒');
+  const healVal = val('heal');
+  if(healVal>0){
+    const before = P.hp; P.hp = Math.min(P.maxHp, P.hp + healVal);
+    L({who:'あなた', key:'p:hp', eff:'回復', v:healVal, base:c.heal||0, before, after:P.hp, state:'HP'});
+  }
+  gain('あなた', P, 'p', 'regen', 'regen', '再生');
+  const loseHpVal = val('loseHp');
+  if(loseHpVal>0){
+    const before = P.hp; P.hp = Math.max(0, P.hp - loseHpVal);
+    L({who:'あなた', key:'p:hp', eff:'ダメージ(代償)', v:loseHpVal, base:c.loseHp||0, before, after:P.hp, state:'HP'});
+  }
 
   customStatusFieldDefs().forEach(def=>{
-    const amt = (c[def.key]||0) + scaleBonus(c, def.key);   // 負の値は、スタックを減らす
+    const base0 = c[def.key]||0;
+    const amt = base0 + scaleBonus(c, def.key);   // 負の値は、スタックを減らす
     const st = (S.customStatuses||[]).find(s=>s.id===def._statusId);
     if(!st) return;
     const side = csGrantSide(c, st);
     const extra = side==='both' ? ((c['csX_'+st.id])|0) : 0;
     if(amt===0 && extra===0) return;
+    const nm = `${st.emoji||''}${st.name}`;
+    const give = (ent, who, ek, n, base)=>{
+      const before = customStatusStacks(ent, st.id);
+      addCustomStatusStacks(ent, st.id, n);
+      L({who, key:`${ek}:cs:${st.id}`, eff:nm, v:n, base, before, after:customStatusStacks(ent, st.id), state:nm});
+    };
     if(side==='both'){
-      if(amt!==0) addCustomStatusStacks(r.player, st.id, amt);
-      if(extra!==0) addCustomStatusStacks(r.enemy, st.id, extra);
-    } else {
-      addCustomStatusStacks(side==='opponent' ? r.enemy : r.player, st.id, amt);
-    }
-    pushLog(`${c.name}: ${def.desc(amt, c)}`);
+      if(amt!==0) give(P, 'あなた', 'p', amt, base0);
+      if(extra!==0) give(E, E.name, 'e', extra, extra);
+    } else if(side==='opponent') give(E, E.name, 'e', amt, base0);
+    else give(P, 'あなた', 'p', amt, base0);
+    if(!LOG_UNIFIED) pushLog(`${c.name}: ${def.desc(amt, c)}`);
   });
   applyStatusOp(c.statusOp, r.player, r.enemy, c.name);
 }
@@ -4352,6 +4418,7 @@ let LOG_EXPANDED = false;
 function pushLog(msg, kind, detail){
   let html = kind ? `<span class="lg lg-${kind}">${msg}</span>` : msg;
   if(detail) html += `<span class="lg-sub">${detail}</span>`;
+  if(LOG_GROUPS.length){ LOG_GROUPS[LOG_GROUPS.length-1].lines.push(html); return; }
   S.run.log.unshift(html);
   if(S.run.log.length>LOG_MAX) S.run.log.pop();
 }
@@ -4365,35 +4432,86 @@ function battleLogHTML(r){
     ? `<div class="lg-turnrow">${l}</div>`
     : `<div>・${l}</div>`).join('');
 }
-// 1発ぶんの結果を「全部防いだ／いくら防いで残りがHPに」の形で説明する。target: 'player'=自分が受けた, 'enemy'=敵が受けた
-function hitResultText(h, target){
-  const isP = target==='player';
-  const hpName = isP ? 'HP' : '敵HP';
-  let s;
-  if(h.hpLoss<=0) s = `全てブロックで${isP?'防いだ':'防がれた'}（ブロック ${h.blockBefore}→${h.blockAfter}）`;
-  else if(h.blocked>0) s = `ブロック${h.blocked}で${isP?'防ぎ':'防がれ'}、${hpName}-${h.hpLoss}（${hpName} ${h.hpBefore}→${h.hpAfter}／ブロック ${h.blockBefore}→${h.blockAfter}）`;
-  else s = `${hpName}-${h.hpLoss}（${hpName} ${h.hpBefore}→${h.hpAfter}）`;
-  if(h.pierce && h.blockBefore>0) s += `　※貫通でブロック${h.blockBefore}を無視`;
-  return s;
+// ---- 戦闘ログの書式 ----
+// 1回の行動（カード使用・敵の行動）は「使用者：カード名」の見出しの下に、効果ごとの行をまとめて1件として残す。
+// 効果の行:  {対象} に ダメージ{合計} ({基礎}{±参照増減}{±固定値}{×倍率 状態名}、{N}ブロック)
+// 最後に、変化した値を「{対象}：HP 前 → 後」の形でまとめる（多段攻撃なら、最初の前と最後の後）。
+const LOG_GROUPS = [];
+function logGroupBegin(head){ LOG_GROUPS.push({head, lines:[], res:{}, order:[]}); }
+function logResultLine(x){
+  const t = `${x.who}：${x.label} ${x.before} → ${x.after}`;
+  return x.cls ? `<span class="${x.cls}">${t}</span>` : t;
 }
-function hitBreakdownText(power, str, mods, total, label){
-  const steps = [`威力${power}${str?`＋強化${str}`:''}`].concat(mods||[]);
-  return (steps.length>1 || str) ? `${label||'内訳'}: ${steps.join(' → ')} ＝ ${total}` : '';
+function logGroupEnd(){
+  const g = LOG_GROUPS.pop(); if(!g) return;
+  g.order.forEach(k=>{ const x = g.res[k]; if(x.before!==x.after) g.lines.push(logResultLine(x)); });
+  const html = `<span class="lg lg-head">${g.head}</span>` + g.lines.map(l=>`<span class="lg-line">${l}</span>`).join('');
+  if(LOG_GROUPS.length) LOG_GROUPS[LOG_GROUPS.length-1].lines.push(html);
+  else S.run.log.unshift(html), (S.run.log.length>LOG_MAX && S.run.log.pop());
 }
-function logEnemyHit(e, c, h, power, str, tag){
-  const head = `${e.name}の「${c.name}」${tag?`（${tag}）`:''}！ `;
-  if(h.total<=0){ pushLog(`${head}ダメージなし。`, 'guard'); return; }
-  pushLog(`${head}${h.total}ダメージ → ${hitResultText(h,'player')}。`, h.hpLoss>0?'hit':'guard', hitBreakdownText(power, str, h.mods, h.total));
+function logResult(key, who, label, before, after, cls){
+  const g = LOG_GROUPS[LOG_GROUPS.length-1];
+  if(!g){ if(before!==after) pushLog(logResultLine({who,label,before,after,cls})); return; }
+  if(g.res[key]) g.res[key].after = after;
+  else { g.res[key] = {who,label,before,after,cls}; g.order.push(key); }
 }
-function logPlayerHit(c, h, power, str){
-  if(h.total<=0){ pushLog(`${c.name}: 敵にダメージを与えられなかった。`, 'deal'); return; }
-  pushLog(`${c.name}: 敵に${h.total}ダメージ → ${hitResultText(h,'enemy')}。`, 'deal', hitBreakdownText(power, str, h.mods, h.total));
+function pctMult(pct){ return Math.round((1+pct/100)*1000)/1000; }
+function csLabel(entity, kind){
+  const names = customEffectsOn(entity, kind).map(x=>x.st.name);
+  return names.length ? names.join('・') : '状態';
+}
+function nSign(n){ return (n>0?'+':'')+n; }
+// 計算式。o: {base, scale, flats:[{v,label}], steps, blocked, pierce}
+function logExprHTML(o){
+  const parts = [`<span class="lg-n">基礎${o.base}</span>`];
+  if(o.scale) parts.push(`<span class="lg-sc">${nSign(o.scale)}</span>`);
+  let flat = 0; const names = [];
+  (o.flats||[]).concat((o.steps||[]).filter(s=>s.t==='flat')).forEach(f=>{
+    if(f.v){ flat += f.v; names.push(`${f.label}${nSign(f.v)}`); }
+  });
+  if(flat) parts.push(`<span class="${flat>0?'lg-fp':'lg-fm'}" title="${names.join(' ')}">${nSign(flat)}</span>`);
+  (o.steps||[]).forEach(s=>{ if(s.t==='mult') parts.push(`<span class="lg-n lg-mul">×${s.v} ${s.label}</span>`); });
+  let html = parts.join('');
+  if(o.blocked>0) html += `、<span class="lg-blk">${o.blocked}ブロック</span>`;
+  if(o.pierce) html += '、貫通';
+  return html;
+}
+function logHeadPrefix(name){ return LOG_GROUPS.length ? '' : `${name}：`; }
+function logHitLine(name, target, h, o){
+  pushLog(`${logHeadPrefix(name)}${target}にダメージ<b>${h.total}</b> (${logExprHTML({...o, steps:h.steps, blocked:h.blocked, pierce:h.pierce && h.blockBefore>0})})`,
+    h.hpLoss>0 ? 'hit' : 'guard');
+}
+// 敵の攻撃1発。info: {base, scale, str}
+function logEnemyHit(e, c, h, info){
+  logHitLine(`${e.name}：${c.name}`, 'あなた', h, {base:info.base, scale:info.scale, flats:[{v:info.str, label:'強化'}]});
+  logResult('p:hp', 'あなた', 'HP', h.hpBefore, h.hpAfter);
+  logResult('p:blk', 'あなた', 'ブロック', h.blockBefore, h.blockAfter, 'lg-blk');
+}
+function logPlayerHit(c, h, base, scale, str){
+  logHitLine(c.name, S.run.enemy.name, h, {base, scale, flats:[{v:str, label:'強化'}]});
+  const en = S.run.enemy.name;
+  logResult('e:hp', en, 'HP', h.hpBefore, h.hpAfter);
+  logResult('e:blk', en, 'ブロック', h.blockBefore, h.blockAfter, 'lg-blk');
+}
+// ブロック獲得。who: 対象名、ent: 'p'|'e'、before/after: 獲得前後のブロック
+function logBlockGain(name, who, ent, total, o, before, after){
+  pushLog(`${logHeadPrefix(name)}${who}に<span class="lg-blk">ブロック${total}</span> (${logExprHTML(o)})`);
+  logResult(ent+':blk', who, 'ブロック', before, after, 'lg-blk');
+}
+// ダメージ・ブロック以外の効果。書式: {対象}に{効果名}{値} (基礎N±参照増減) → 最後に {対象}：{状態} 前 → 後
+// 「従来」書式に切り替えたときは、legacy（旧来の1行）だけを出す。
+let LOG_UNIFIED = (()=>{ try{ return localStorage.getItem('logUnified')!=='0'; }catch(e){ return true; } })();
+function logStat(o){
+  if(!LOG_UNIFIED){ if(o.legacy) pushLog(typeof o.legacy==='function' ? o.legacy(o.v) : o.legacy); return; }
+  const shown = o.shown!==undefined ? o.shown : o.v;
+  pushLog(`${logHeadPrefix(o.name)}${o.who}に${o.eff}<b>${shown}</b> (${logExprHTML({base:o.base, scale:o.v-o.base})})`);
+  logResult(o.key, o.who, o.state||o.eff, o.before, o.after);
 }
 // 敵の1回の行動で攻撃が2発以上当たったときの、被弾の合計
 function logEnemyTurnSummary(r){
   const st = r.enemyTurnStat; r.enemyTurnStat = null;
   if(!st || st.hits<2) return;
-  pushLog(`被弾まとめ: ${st.hits}発で合計${st.total}ダメージ → ブロックで${st.blocked}防ぎ、HP-${st.hpLoss}（HP ${st.hpStart}→${r.player.hp}）`, 'sum');
+  pushLog(`被弾合計: ${st.total}ダメージ（<span class="lg-blk">${st.blocked}ブロック</span>・HP-${st.hpLoss}）`, 'sum');
 }
 
 function beginFloor(){
@@ -4412,6 +4530,7 @@ function beginFloor(){
   // Rebuild the full card pool for the new battle: everything in the draw pile,
   // hand, discard pile, and exhaust pile returns and gets reshuffled. This mirrors
   // standard deckbuilder behavior and prevents cards from being lost between floors.
+  LOG_GROUPS.length = 0;
   purgeTemporaryCards(r);
   const fullPool = [...r.draw, ...r.hand, ...r.discard, ...r.exhausted];
   r.draw = shuffle(fullPool);
@@ -4440,7 +4559,7 @@ function beginFloor(){
 
   r.enemy = makeEnemy(r.floor);
   applyEnemyStartEffects(r, r.enemy, r.enemy.startEffect);
-  r.player.block = 0;
+  r.player.block = 0; r.player.autoGranted = 0;
   r.log = [];
   r.turnNo = 0;
   pushLog(`${r.enemy.name}が現れた！`);
@@ -4516,6 +4635,7 @@ function startPlayerTurn(first){
   const autoBlock = r.player.metallicize + r.player.permMetallicize;
   if(autoBlock>0){ r.player.block += autoBlock; }
   const customSkip = tickCustomStatusesForTurn(r.player);
+  r.player.autoGranted = r.player.block; // このターン開始時に自動ブロックで入った分（表示で「ブロック+自動」を分けるため）
   if(playerFallen()){ onPlayerDefeated(); return; }
   if(!first){
     // discard hand from previous turn, except cards flagged "retain"
@@ -4555,22 +4675,22 @@ function startPlayerTurn(first){
 function applyDamageToEnemy(raw, pierce, onHit){
   const r = S.run; const e = r.enemy;
   let dmg = raw;
-  const mods = [];
+  const steps = [];
   const dealtBonus = customDamageDealtBonus(r.player);
-  if(dealtBonus.flat){ dmg += dealtBonus.flat; mods.push(`${dealtBonus.flat>0?'+':''}${dealtBonus.flat}（状態）`); }
-  if(r.player.weak>0){ dmg = Math.floor(dmg*0.75); mods.push('あなたの弱体×0.75'); }
-  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); mods.push(`${dealtBonus.pct>0?'+':''}${dealtBonus.pct}%（状態）`); }
-  if(e.vulnerable>0){ dmg = Math.floor(dmg*1.5); mods.push('敵の脆弱×1.5'); }
+  if(dealtBonus.flat){ dmg += dealtBonus.flat; steps.push({t:'flat', v:dealtBonus.flat, label:csLabel(r.player,'damageDealtFlat')}); }
+  if(r.player.weak>0){ dmg = Math.floor(dmg*0.75); steps.push({t:'mult', v:0.75, label:'弱体'}); }
+  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); steps.push({t:'mult', v:pctMult(dealtBonus.pct), label:csLabel(r.player,'damageDealtPct')}); }
+  if(e.vulnerable>0){ dmg = Math.floor(dmg*1.5); steps.push({t:'mult', v:1.5, label:'脆弱'}); }
   const takenFlat = customDamageTakenFlat(e);
-  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); mods.push(`${takenFlat>0?'+':''}${takenFlat}（敵の状態）`); }
+  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); steps.push({t:'flat', v:takenFlat, label:csLabel(e,'damageTakenFlat')}); }
   const takenPct = customDamageTakenPct(e);
-  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); mods.push(`${takenPct>0?'+':''}${takenPct}%（敵の状態）`); }
+  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); steps.push({t:'mult', v:pctMult(takenPct), label:csLabel(e,'damageTakenPct')}); }
   dmg = Math.max(0, dmg);
   const hpBefore = e.hp, blockBefore = e.block;
   let blocked = 0;
   if(!pierce){ blocked = Math.min(e.block, dmg); e.block -= blocked; dmg -= blocked; }
   e.hp = Math.max(0, e.hp - dmg);
-  const hit = {raw, mods, total: dmg+blocked, blocked, hpLoss: dmg, pierce: !!pierce, hpBefore, hpAfter: e.hp, blockBefore, blockAfter: e.block};
+  const hit = {raw, steps, total: dmg+blocked, blocked, hpLoss: dmg, pierce: !!pierce, hpBefore, hpAfter: e.hp, blockBefore, blockAfter: e.block};
   r.lastEnemyHit = hit;
   if(onHit) onHit(hit);   // 敵の構え（トリガー）のログより先に、この攻撃のログを残すため
   if(dmg+blocked>0) fireEnemyTriggers(r, 'damaged', {hpLoss: dmg, total: dmg+blocked});
@@ -4583,18 +4703,18 @@ function calcPlayerDamage(raw, opts){
   opts = opts||{};
   const r = S.run, p = r.player, en = r.enemy;
   const vuln = opts.vulnerable!==undefined ? opts.vulnerable : p.vulnerable;
-  const mods = [];
+  const steps = [];
   let dmg = raw;
   const dealtBonus = customDamageDealtBonus(en);
-  if(dealtBonus.flat){ dmg += dealtBonus.flat; mods.push(`${dealtBonus.flat>0?'+':''}${dealtBonus.flat}（敵の状態）`); }
-  if(en.weak>0){ dmg = Math.floor(dmg*0.75); mods.push('敵の弱体×0.75'); }
-  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); mods.push(`${dealtBonus.pct>0?'+':''}${dealtBonus.pct}%（敵の状態）`); }
-  if(vuln>0){ dmg = Math.floor(dmg*1.5); mods.push('あなたの脆弱×1.5'); }
+  if(dealtBonus.flat){ dmg += dealtBonus.flat; steps.push({t:'flat', v:dealtBonus.flat, label:csLabel(en,'damageDealtFlat')}); }
+  if(en.weak>0){ dmg = Math.floor(dmg*0.75); steps.push({t:'mult', v:0.75, label:'弱体'}); }
+  if(dealtBonus.pct){ dmg = Math.max(0, Math.floor(dmg*(1+dealtBonus.pct/100))); steps.push({t:'mult', v:pctMult(dealtBonus.pct), label:csLabel(en,'damageDealtPct')}); }
+  if(vuln>0){ dmg = Math.floor(dmg*1.5); steps.push({t:'mult', v:1.5, label:'脆弱'}); }
   const takenFlat = customDamageTakenFlat(p);
-  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); mods.push(`${takenFlat>0?'+':''}${takenFlat}（あなたの状態）`); }
+  if(takenFlat && dmg>0){ dmg = Math.max(0, dmg + takenFlat); steps.push({t:'flat', v:takenFlat, label:csLabel(p,'damageTakenFlat')}); }
   const takenPct = customDamageTakenPct(p);
-  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); mods.push(`${takenPct>0?'+':''}${takenPct}%（あなたの状態）`); }
-  return {raw, total: Math.max(0, dmg), mods};
+  if(takenPct){ dmg = Math.max(0, Math.floor(dmg*(1+takenPct/100))); steps.push({t:'mult', v:pctMult(takenPct), label:csLabel(p,'damageTakenPct')}); }
+  return {raw, total: Math.max(0, dmg), steps};
 }
 function applyDamageToPlayer(raw, pierce){
   const r = S.run; const p = r.player;
@@ -4605,7 +4725,7 @@ function applyDamageToPlayer(raw, pierce){
   p.block -= blocked;
   const hpLoss = total - blocked;
   p.hp = Math.max(0, p.hp - hpLoss);
-  r.lastHit = {raw, mods: calc.mods, hpLoss, total, blocked, pierce: !!pierce, hpBefore, hpAfter: p.hp, blockBefore, blockAfter: p.block};
+  r.lastHit = {raw, steps: calc.steps, hpLoss, total, blocked, pierce: !!pierce, hpBefore, hpAfter: p.hp, blockBefore, blockAfter: p.block};
   return total;
 }
 
@@ -4622,7 +4742,9 @@ function playCard(handIdx){
   // then end up both in the hand (buffed) and in the discard pile (original) — two copies.
   r.hand.splice(handIdx,1);
 
+  logGroupBegin(`あなた：${cardIcon(c)}${c.name}`);
   resolveCardPlayCore(r, c, ()=>{
+    logGroupEnd();
     if(c.exhaust){ r.exhausted.push(cardId); }
     else{ r.discard.push(cardId); }
 
@@ -4803,11 +4925,6 @@ function intentLabel(e){
   const V = key=> enemyVal(c, key);
   const parts = [];
   const hits = Math.max(1, (c.hits||1) + scaleBonus(c,'hits','enemy'));
-  if(V('damage')>0){
-    // 元の威力（参照増減は反映済み）。強化や弱体・脆弱を含めた実際の予測は、下の「予測」行に出す。
-    const printed = c.damage||0;
-    parts.push(`威力${V('damage')}${hits>1?`×${hits}`:''}${V('damage')!==printed?`（記載${printed}）`:''}`);
-  }
   if(V('block')>0) parts.push(`ブロック${Math.max(0, V('block') + customBlockGainBonus(e))}`);
   const str = V('strength')+V('permStrength');
   if(str>0) parts.push(`強化${str}`);
@@ -4848,8 +4965,16 @@ function intentLabel(e){
     trigText = `【構え：${when}】`;
   }
   const pred = isTrig ? null : predictEnemyAttack(e, c);
-  return {cls, text:`予告: ${cardIcon(c)}${escapeHtml(c.name)}${trigText}${parts.length?' '+parts.join('・'):''}`,
-          sub: pred ? predictionLines(e, pred) : '', lethal: !!(pred && pred.lethal)};
+  // 表記: {カード名}：ダメージ {予測合計}({基礎}×{回数})・その他の効果…（詳細はポップオーバー）
+  const all = parts.slice();
+  if(pred) all.unshift(`${pred.lethal?'<span class="warn">⚠</span>':''}ダメージ <b>${pred.total}</b>${pred.hits>1?`<span class="ip-calc">(${V('damage')}×${pred.hits})</span>`:(V('damage')!==pred.total?`<span class="ip-calc">(${V('damage')})</span>`:'')}`);
+  const text = `${cardIcon(c)}${escapeHtml(c.name)}${trigText}：${all.length?all.join('・'):'―'}`;
+  const pop = `<div class="intent-pop">
+    <div class="ip-title">${cardIcon(c)}${escapeHtml(c.name)}${trigText}</div>
+    ${parts.length?`<div class="ip-parts">${parts.join('・')}</div>`:''}
+    ${pred ? predictionPopHTML(e, c, pred) : ''}
+  </div>`;
+  return {cls, text, pop, lethal: !!(pred && pred.lethal)};
 }
 
 // 敵の攻撃を、実際の処理（applyEnemyCardPayload）と同じ順序でシミュレートして、被ダメージを予測する。
@@ -4875,7 +5000,7 @@ function predictEnemyAttack(e, c){
     blk -= blocked;
     const loss = calc.total - blocked;
     hp = Math.max(0, hp - loss);
-    rows.push({total: calc.total, blocked, loss, mods: calc.mods});
+    rows.push({total: calc.total, blocked, loss, steps: calc.steps, str: e.strength + strAdd, hpAfter: hp});
     strAdd += strGain;
     if(vulnGain>0) vuln += vulnGain;
   }
@@ -4886,25 +5011,27 @@ function predictEnemyAttack(e, c){
           lethal: hp<=0, pierce: !!c.pierce, needBlock: c.pierce ? 0 : Math.max(0, total - p.block),
           vulnNote: ticking ? `あなたの脆弱${p.vulnerable}は、ターン終了時に${vulnStart}へ減る前提` : ''};
 }
-function predictionLines(e, pr){
-  let res;
-  if(pr.total<=0) res = 'ダメージなし';
-  else if(pr.loss<=0) res = `全てブロックで防げる（ブロック ${pr.blockBefore}→${pr.blockAfter}）`;
-  else if(pr.blocked>0) res = `ブロック${pr.blocked}で防ぎ、HP-${pr.loss}（HP ${pr.hpBefore}→${pr.hpAfter}）`;
-  else res = `HP-${pr.loss}（HP ${pr.hpBefore}→${pr.hpAfter}）`;
-  const head = pr.rows.length>1
-    ? `予測 <b>合計${pr.total}ダメージ</b>（${pr.rows.map(x=>x.total).join('＋')}）`
-    : `予測 <b>${pr.total}ダメージ</b>`;
-  let html = `<div class="intent-sub">${head} → ${res}${pr.lethal?' <span class="warn">⚠ 致死</span>':''}</div>`;
+// ポップオーバー: 1発ごとの計算（基礎・参照増減・固定値・倍率・ブロック）と、最終的なHP・ブロックの変化
+function predictionPopHTML(e, c, pr){
+  const printed = c.damage||0, scale = pr.base - printed;
+  let html = pr.rows.map((x,i)=>{
+    const expr = logExprHTML({base:printed, scale, flats:[{v:x.str, label:'強化'}], steps:x.steps, blocked:x.blocked, pierce:pr.pierce && pr.blockBefore>0});
+    const res = x.loss>0 ? `HP-${x.loss}` : (x.total>0 ? 'HP変化なし' : '');
+    return `<div class="ip-row"><span class="ip-k">${i+1}発目</span>ダメージ<b>${x.total}</b> (${expr}) <span class="ip-k">${res}</span></div>`;
+  }).join('');
+  let sum = `ダメージ合計 <b>${pr.total}</b>`;
+  if(pr.total<=0) sum += '（ダメージなし）';
+  html += `<div class="ip-sum">${sum}${pr.lethal?' <span class="warn">⚠ 致死</span>':''}
+    <div>あなた：HP ${pr.hpBefore} → ${pr.hpAfter}</div>
+    ${pr.blockBefore!==pr.blockAfter?`<div class="lg-blk">あなた：ブロック ${pr.blockBefore} → ${pr.blockAfter}</div>`:''}</div>`;
   const notes = [];
-  const bd = hitBreakdownText(pr.base, e.strength, pr.rows[0] ? pr.rows[0].mods : [], pr.rows[0] ? pr.rows[0].total : 0, pr.rows.length>1 ? '1発目の内訳' : '内訳');
-  if(bd) notes.push(bd);
   if(pr.rows.length>1 && pr.strGain>0) notes.push(`1発ごとに強化+${pr.strGain}`);
   if(pr.rows.length>1 && pr.newVuln) notes.push('この攻撃で脆弱が付くため、2発目以降は×1.5');
   if(pr.pierce) notes.push('貫通（ブロック無視）');
   else if(pr.loss>0) notes.push(`完全に防ぐには、あと${pr.needBlock}ブロック`);
   if(pr.vulnNote) notes.push(pr.vulnNote);
-  if(notes.length) html += `<div class="intent-sub dim">${notes.join('／')}</div>`;
+  notes.push('敵の構え・ターン開始時の状態変化は含みません');
+  html += `<div class="ip-note">${notes.join('／')}</div>`;
   return html;
 }
 
@@ -4947,29 +5074,51 @@ function renderCardChoiceOverlay(r){
   };
 }
 
+let INTENT_OPEN = false;
+// ブロック欄: ブロックが1以上、または次のターン開始時に自動ブロックが入るときだけ中身を出す。場所は常に確保して、画面がずれないようにする。
+function hpBarHTML(ent){
+  const auto = (ent.metallicize||0) + (ent.permMetallicize||0) + customEffectSum(ent,'autoBlock');
+  const on = ent.block>0 || auto>0;
+  // プレイヤーは、ターン開始時に自動ブロックで入った分を「ブロック」から除いて表示する（0+1のように）
+  const shownBlock = auto>0 ? Math.max(0, ent.block - (ent.autoGranted||0)) : ent.block;
+  const badge = on
+    ? `<div class="hpbar-block">🛡${shownBlock}${auto>0?`<span class="blk-auto" title="次の自分のターン開始時に自動で入るブロック">+${auto}</span>`:''}</div>` : '';
+  return `<div class="hpbar-wrap${on?' has-block':''}"><div class="hpbar-fill" style="width:${Math.max(0,100*ent.hp/ent.maxHp)}%"></div><div class="hpbar-text"><span>${ent.hp} / ${ent.maxHp}</span>${badge}</div></div>`;
+}
+// ログの表示位置（右サイド / 下）。ブラウザに覚えさせる
+let LOG_SIDE = (()=>{ try{ return localStorage.getItem('logSide')==='bottom' ? 'bottom' : 'right'; }catch(e){ return 'right'; } })();
+function battleLogPanelHTML(r){
+  const right = LOG_SIDE==='right';
+  return `<div class="log-head"><span>戦闘ログ（新しい順・${r.log.length}件）</span>
+      <span class="log-btns"><button class="log-toggle" id="btn-log-fmt" title="ダメージ・ブロック以外の効果の書式">${LOG_UNIFIED?'書式:統一':'書式:従来'}</button><button class="log-toggle" id="btn-log-side">${right?'下に移す':'右に移す'}</button>${right?'':`<button class="log-toggle" id="btn-log-size">${LOG_EXPANDED?'縮小':'拡大'}</button>`}</span></div>
+      <div class="log-box${(!right && LOG_EXPANDED)?' expanded':''}">${battleLogHTML(r)}</div>`;
+}
+document.addEventListener('click', ev=>{ if(INTENT_OPEN && !ev.target.closest('#intent-box')){ INTENT_OPEN = false; const b = qs('#intent-box'); if(b) b.classList.remove('open'); } });
 function renderBattle(){
   const r = S.run;
   if(r.pendingChoice){ renderCardChoiceOverlay(r); return; }
   const p = r.player; const e = r.enemy;
   const intent = intentLabel(e);
+  const logRight = LOG_SIDE==='right';
   app().innerHTML = `
-  <div class="screen">
+  <div class="screen battle-screen${logRight?' log-right':''}">
+   <div class="battle-main">
     <div class="floor-progress">階層 ${r.floor} / ${S.settings.floorCount} ${e.boss?'・ボス戦':(e.elite?'・エリート':'')} ・ 💰${p.gold}</div>
     ${p.relics.length? `<div style="text-align:center; font-size:11px; color:var(--gold); margin-bottom:8px;">🏺 ${p.relics.map(id=>{const rel=S.relics.find(x=>x.id===id); return rel?rel.name:id;}).join(' ・ ')}</div>` : ''}
     <div class="battlefield">
       <div class="combatant player">
         <div class="portrait">🗡️</div>
         <div class="cname">冒険者</div>
-        <div class="hpbar-wrap"><div class="hpbar-fill" style="width:${Math.max(0,100*p.hp/p.maxHp)}%"></div><div class="hpbar-text">${p.hp} / ${p.maxHp}${p.block?` (🛡${p.block})`:''}</div></div>
+        ${hpBarHTML(p)}
         <div class="statuses">${statusChips({...p, strength: p.strength+p.permStrength, dexterity: p.dexterity+p.permDexterity, metallicize: p.metallicize+p.permMetallicize, thorns: p.thorns+p.permThorns})}</div>
       </div>
       <div class="vsmark">VS</div>
       <div class="combatant enemy">
         <div class="portrait ${e.image?'has-img':''}">${e.image ? `<img src="${e.image}" alt="">` : e.emoji}</div>
         <div class="cname">${e.name}</div>
-        <div class="hpbar-wrap"><div class="hpbar-fill" style="width:${Math.max(0,100*e.hp/e.maxHp)}%"></div><div class="hpbar-text">${e.hp} / ${e.maxHp}${e.block?` (🛡${e.block})`:''}</div></div>
+        ${hpBarHTML(e)}
         <div class="statuses">${statusChips(e)}</div>
-        <div class="intent ${intent.cls}${intent.lethal?' lethal':''}">${intent.text}${intent.sub||''}</div>
+        <div class="intent ${intent.cls}${intent.lethal?' lethal':''}${INTENT_OPEN?' open':''}" id="intent-box"><div class="intent-main">${intent.text}</div>${intent.pop||''}</div>
       </div>
     </div>
 
@@ -4988,9 +5137,10 @@ function renderBattle(){
           return `<div data-idx="${idx}">${renderCardHTML(c,{unplayable})}</div>`;
         }).join('')}
       </div>
-      <div class="log-head"><span>戦闘ログ（新しい順・${r.log.length}件）</span><button class="log-toggle" id="btn-log-size">${LOG_EXPANDED?'縮小':'拡大'}</button></div>
-      <div class="log-box${LOG_EXPANDED?' expanded':''}">${battleLogHTML(r)}</div>
+      ${logRight ? '' : battleLogPanelHTML(r)}
     </div>
+   </div>
+   ${logRight ? `<aside class="battle-log">${battleLogPanelHTML(r)}</aside>` : ''}
   </div>`;
 
   qsa('#hand-row > div').forEach(wrap=>{
@@ -5000,7 +5150,10 @@ function renderBattle(){
     };
   });
   qs('#btn-endturn').onclick = endPlayerTurn;
-  qs('#btn-log-size').onclick = ()=>{ LOG_EXPANDED = !LOG_EXPANDED; renderBattle(); };
+  { const ib = qs('#intent-box'); if(ib) ib.onclick = ev=>{ if(ev.target.closest('.intent-pop')) return; INTENT_OPEN = !INTENT_OPEN; ib.classList.toggle('open', INTENT_OPEN); ev.stopPropagation(); }; }
+  { const b = qs('#btn-log-size'); if(b) b.onclick = ()=>{ LOG_EXPANDED = !LOG_EXPANDED; renderBattle(); }; }
+  qs('#btn-log-side').onclick = ()=>{ LOG_SIDE = LOG_SIDE==='right' ? 'bottom' : 'right'; try{ localStorage.setItem('logSide', LOG_SIDE); }catch(e){} renderBattle(); };
+  qs('#btn-log-fmt').onclick = ()=>{ LOG_UNIFIED = !LOG_UNIFIED; try{ localStorage.setItem('logUnified', LOG_UNIFIED?'1':'0'); }catch(e){} renderBattle(); };
 }
 
 /* ============================= REST SCREEN ============================= */
