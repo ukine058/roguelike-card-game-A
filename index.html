@@ -2467,7 +2467,7 @@ function resolveCardOp(r, op, done){
 function applyEffectValues(r, c){
   const dmgBase = c.damage||0;
   const dmgVal = Math.max(0, dmgBase + scaleBonus(c,'damage'));
-  if(dmgVal>0){
+  if(dmgVal>0 && r.enemy){
     const strTotal = r.player.strength + r.player.permStrength;
     applyDamageToEnemy(dmgVal + strTotal, c.pierce, h=> logPlayerHit(c, h, dmgBase, dmgVal-dmgBase, strTotal));
     // 吸収: ブロックで防がれた分は回復しない。実際に敵のHPを減らせた分だけ回復する。
@@ -2477,7 +2477,7 @@ function applyEffectValues(r, c){
       else if(lh && lh.total>0) pushLog(`${c.name}: 吸収は全て防がれたので回復なし。`);
     }
     // 敵が持つカスタム状態の「反射」: 攻撃を受けた敵が、攻撃した側にダメージを返す（ブロック無視）
-    const foeReflect = customReflectDamage(r.enemy);
+    const foeReflect = r.enemy ? customReflectDamage(r.enemy) : 0;
     if(foeReflect>0 && r.enemy.hp>0 && r.player.hp>0){
       const pBefore = r.player.hp;
       r.player.hp = Math.max(0, r.player.hp - foeReflect);
@@ -2491,7 +2491,8 @@ function applyEffectValues(r, c){
     r.player.block += total;
     logBlockGain(c.name, 'あなた', 'p', total, {base:c.block||0, scale:blockVal-(c.block||0), flats:[{v:r.player.dexterity + r.player.permDexterity, label:'器用'},{v:customBlockGainBonus(r.player), label:'状態'}]}, bBefore, r.player.block);
   }
-  const P = r.player, E = r.enemy;
+  // 戦闘前（最初のレリック選択など）は敵がまだいない。敵向けの効果は、受け皿の仮の敵に入れて捨てる。
+  const P = r.player, E = r.enemy || {name:'敵', hp:1, maxHp:1, block:0, strength:0, dexterity:0, weak:0, vulnerable:0, poison:0, stun:0, thorns:0, customStatus:{}, triggers:[]};
   const val = k=> Math.max(0, (c[k]||0) + scaleBonus(c,k));
   const L = o=> logStat({name:c.name, ...o});
   // 数値を足す効果（強化・弱体・毒など）の共通処理
