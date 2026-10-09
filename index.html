@@ -1107,6 +1107,8 @@ function cardOpDescParts(op){
   if(CARDOP_REVERTIBLE_TYPES.includes(op.type)){
     parts.push(op.permanent ? '（永続：戦闘後も残る）' : '（この戦闘中のみ）');
   }
+  const scaleParts = cardOpScaleDescription(op);
+  if(scaleParts.length) parts.push(`参照増減: ${scaleParts.join('／')}`);
   return parts;
 }
 
@@ -1290,9 +1292,31 @@ function normalizeRelic(r){
   r.favorPct = clampInt(r.favorPct,0,1000,0);
   return r;
 }
+// カード操作の数値欄にも、カード本体の効果と同じ参照増減を設定できる。
+const CARDOP_SCALE_FIELD_DEFS = {
+  countFixed:{label:'固定数 / 選ぶ枚数', min:0, max:20, fallback:1},
+  countMin:{label:'ランダム最小', min:0, max:20, fallback:1},
+  countMax:{label:'ランダム最大', min:0, max:20, fallback:1},
+  costDelta:{label:'コストの増減量', min:-9, max:9, fallback:0},
+  buffAmount:{label:'効果の付与量', min:-99, max:99, fallback:0},
+  deckWeight:{label:'敵のデッキでの重み', min:1, max:99, fallback:1},
+};
+function normalizeReferenceScaleRule(raw){
+  if(!raw || typeof raw!=='object' || Array.isArray(raw) || typeof raw.source!=='string' || !raw.source || raw.source==='none') return null;
+  return {source:raw.source, tag:cleanTag(raw.tag), perPoint:clampFloat(raw.perPoint,-10,10,0)};
+}
+function normalizeCardOpScales(raw){
+  const out = {};
+  if(!raw || typeof raw!=='object' || Array.isArray(raw)) return out;
+  Object.keys(CARDOP_SCALE_FIELD_DEFS).forEach(field=>{
+    const rule = normalizeReferenceScaleRule(raw[field]);
+    if(rule) out[field] = rule;
+  });
+  return out;
+}
 function defaultStatusOp(){
   return {enabled:true, type:'moveToDiscard', fromPile:'hand', genPool:'normal', countMode:'fixed',
-    countFixed:1, countMin:1, countMax:1, filterTag:'', buffField:'', buffAmount:0, costDelta:1, deckWeight:1, drawNext:false, sequential:false, permanent:false};
+    countFixed:1, countMin:1, countMax:1, filterTag:'', buffField:'', buffAmount:0, costDelta:1, deckWeight:1, scales:{}, drawNext:false, sequential:false, permanent:false};
 }
 function normalizeStatusOp(o){
   const d = defaultStatusOp();
@@ -1313,6 +1337,7 @@ function normalizeStatusOp(o){
     buffTarget: ['self','opponent'].includes(o.buffTarget) ? o.buffTarget : 'default',   // カスタム状態の付与先（default＝カード側の設定／状態の標準のまま）
     costDelta: clampInt(o.costDelta,-9,9,1),
     deckWeight: clampInt(o.deckWeight,1,99,1),
+    scales: normalizeCardOpScales(o.scales),
     drawNext: !!o.drawNext,
     sequential: !!o.sequential,
     permanent: !!o.permanent,
@@ -1328,7 +1353,10 @@ function normalizeStatusEffect(x){
       ? (Number.isFinite(parseFloat(x.magnitudeValue)) ? Math.max(-999, Math.min(999, Math.round(parseFloat(x.magnitudeValue)*1000)/1000)) : 1)
       : clampInt(x.magnitudeValue,-999,999,1),
   };
-  if(x.kind==='cardOp') e.op = normalizeStatusOp(x.op);
+  if(x.kind==='cardOp'){
+    e.op = normalizeStatusOp(x.op);
+    e.magnitudeScale = normalizeReferenceScaleRule(x.magnitudeScale);
+  }
   if(ELEMENT_KINDS.includes(x.kind)) e.element = (typeof x.element==='string' && x.element) ? x.element.slice(0,64) : 'all';
   if(ELEMENT_ATTACH_KINDS.includes(x.kind)){
     e.element = (typeof x.element==='string' && x.element) ? x.element.slice(0,64) : '';
@@ -1962,6 +1990,11 @@ function scaleBonus(c, field, actor){
   if(!s || !s.source || s.source==='none') return 0;
   return Math.floor((s.perPoint||0) * scaleSourceValue(s.source, s.tag, actor));
 }
+function statusEffectMagnitudeScaleBonus(eff, actor){
+  const s = eff && eff.magnitudeScale;
+  if(!s || !s.source || s.source==='none') return 0;
+  return Math.floor((s.perPoint||0) * scaleSourceValue(s.source, s.tag, actor));
+}
 // 敵が使うカードの効果値（参照増減を含む）
 function enemyVal(c, key){ return Math.max(0, (c[key]||0) + scaleBonus(c, key, 'enemy')); }
 
@@ -2333,7 +2366,8 @@ function tickCustomStatusesForTurn(entity){
         // the one holding the status (whoever applied it — a card, a relic, or an enemy
         // move). It is queued and resolved after this turn's hand has been drawn (see
         // runTurnStartCardOps). How many times it fires uses this effect's magnitude.
-        const times = Math.max(0, Math.round(mag));
+        const actor = entity===S.run.enemy ? 'enemy' : 'player';
+        const times = clampInt(Math.round(mag) + statusEffectMagnitudeScaleBonus(eff, actor),0,999,0);
         if(entity===S.run.player){
           for(let i=0;i<times;i++) queueTurnStartOp(S.run, {...eff.op, enabled:true}, `${tag}の効果`);
         } else {
@@ -2364,11 +2398,12 @@ function opChooseVerb(op){
 // 敵が使うカード操作の説明（視点反転後の内容）。効果のない操作は空文字を返す。
 function enemyOpText(op){
   if(op.fromPile==='self' && !GENERATE_TYPES.includes(op.type)) return '';   // 「そのカード自身」は敵が使うときは効果なし
-  const lo = Math.min(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
-  const hi = Math.max(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
+  const minCount = cardOpValue(op,'countMin','enemy'), maxCount = cardOpValue(op,'countMax','enemy');
+  const lo = Math.min(minCount, maxCount);
+  const hi = Math.max(minCount, maxCount);
   const n = op.countMode==='all' ? 'すべて'
     : op.countMode==='random' ? `${lo}〜${hi}枚`
-    : `${op.countFixed!==undefined?op.countFixed:1}枚`;
+    : `${cardOpValue(op,'countFixed','enemy')}枚`;
   const tag = op.filterTag ? `[${op.filterTag}]の` : '';
   switch(op.type){
     case 'generateToEnemyDeck': return `カード${n}をあなたの山札に加える${op.drawNext ? '（次のターンに必ず引く）' : '（山札に混ざる。次のターンに引くことがある）'}`;
@@ -2381,7 +2416,7 @@ function enemyOpText(op){
     }
     case 'costChange': {
       const pile = (PILE_OPTIONS.find(x=>x.key===(op.fromPile||'hand'))||{}).label || '手札';
-      const d = op.costDelta|0;
+      const d = cardOpValue(op,'costDelta','enemy');
       return `あなたの${pile}の${tag}カード${n}のコストを${d>=0?'+':''}${d}する${op.countMode==='choose' ? '（あなたが選ぶ）' : ''}`;
     }
     case 'upgrade': return `自分のデッキの${tag}カード${n}を強化する`;
@@ -2392,7 +2427,7 @@ function enemyOpText(op){
     case 'grantBuff': {
       const def = allEffectFieldDefs().find(d=>d.key===op.buffField);
       const name = def ? def.label.replace(/（.*$/,'') : (op.buffField||'');
-      const amt = op.buffAmount||0;
+      const amt = cardOpValue(op,'buffAmount','enemy');
       return `自分のデッキの${tag}カード${n}の${name}${amt>=0?'+':''}${amt}${buffTargetText(op)}`;
     }
     default: return '';
@@ -2626,6 +2661,66 @@ function applyEnemyStartEffects(r, e, effect){
 
 /* ============================= CARD OPERATIONS (advanced) ============================= */
 
+function cardOpValue(op, field, actorOverride){
+  const def = CARDOP_SCALE_FIELD_DEFS[field];
+  const base = Number.isFinite(Number(op && op[field])) ? Number(op[field]) : (def ? def.fallback : 0);
+  if(!def) return base;
+  const sc = op && op.scales && op.scales[field];
+  let value = base;
+  if(sc && sc.source && sc.source!=='none'){
+    const actor = actorOverride || (op._scaleActor || (op.fromEnemy ? 'enemy' : 'player'));
+    value += Math.floor((Number(sc.perPoint)||0) * scaleSourceValue(sc.source, sc.tag, actor));
+  }
+  return clampInt(value, def.min, def.max, base);
+}
+function cardOpScaleControlsHTML(op, field, attrs=''){
+  const sc = op && op.scales && op.scales[field];
+  const active = !!(sc && sc.source && sc.source!=='none');
+  return `<div class="op-scale-tools" style="margin-top:4px;">
+    <button type="button" class="ghost" data-opscale-toggle="${field}" ${attrs} style="font-size:10px; padding:2px 5px;">${active?'増減設定を編集':'+参照増減'}</button>
+    <div class="op-scale-config" data-opscale-config="${field}" style="${active?'':'display:none;'} margin-top:5px; padding:6px; background:var(--bg-panel, var(--bg-void)); border:1px solid var(--line); border-radius:4px;">
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照元</div>
+      <select data-opscale-field="${field}" data-opscale-prop="source" ${attrs} style="width:100%; margin-bottom:5px;">
+        ${allScaleSources().map(x=>`<option value="${escapeHtml(x.key)}" ${(sc&&sc.source||'none')===x.key?'selected':''}>${escapeHtml(x.label)}</option>`).join('')}
+      </select>
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照タグ（指定タグの枚数・状態スタック参照時）</div>
+      <input type="text" data-opscale-field="${field}" data-opscale-prop="tag" ${attrs} value="${escapeHtml(sc&&sc.tag||'')}" style="width:100%; margin-bottom:5px;">
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">増減量（参照値1につき）</div>
+      <input type="number" data-opscale-field="${field}" data-opscale-prop="perPoint" ${attrs} value="${sc&&Number.isFinite(Number(sc.perPoint))?sc.perPoint:0}" step="0.1" min="-10" max="10" style="width:100%;">
+    </div>
+  </div>`;
+}
+function statusCardOpMagnitudeScaleHTML(eff, i){
+  const sc = eff && eff.magnitudeScale;
+  const active = !!(sc && sc.source && sc.source!=='none');
+  const attrs = `data-i="${i}"`;
+  return `<div class="op-scale-tools" style="margin-top:4px; margin-bottom:6px;">
+    <button type="button" class="ghost" data-mags-toggle="1" ${attrs} style="font-size:10px; padding:2px 5px;">${active?'増減設定を編集':'+参照増減（操作回数）'}</button>
+    <div class="op-scale-config" data-mags-config="1" style="${active?'':'display:none;'} margin-top:5px; padding:6px; background:var(--bg-panel, var(--bg-void)); border:1px solid var(--line); border-radius:4px;">
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照元</div>
+      <select data-mag-scale-prop="source" ${attrs} style="width:100%; margin-bottom:5px;">
+        ${allScaleSources().map(x=>`<option value="${escapeHtml(x.key)}" ${(sc&&sc.source||'none')===x.key?'selected':''}>${escapeHtml(x.label)}</option>`).join('')}
+      </select>
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">参照タグ（指定タグの枚数・状態スタック参照時）</div>
+      <input type="text" data-mag-scale-prop="tag" ${attrs} value="${escapeHtml(sc&&sc.tag||'')}" style="width:100%; margin-bottom:5px;">
+      <div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">増減量（参照値1につき）</div>
+      <input type="number" data-mag-scale-prop="perPoint" ${attrs} value="${sc&&Number.isFinite(Number(sc.perPoint))?sc.perPoint:0}" step="0.1" min="-10" max="10" style="width:100%;">
+    </div>
+  </div>`;
+}
+function cardOpScaleDescription(op){
+  const parts = [];
+  Object.keys(CARDOP_SCALE_FIELD_DEFS).forEach(field=>{
+    const sc = op && op.scales && op.scales[field];
+    if(!sc || !sc.source || sc.source==='none' || !Number(sc.perPoint)) return;
+    const def = CARDOP_SCALE_FIELD_DEFS[field];
+    const src = allScaleSources().find(x=>x.key===sc.source);
+    const tagPart = (['combatTagPlayed','tagCountHand','tagCountPlayedThisTurn','tagCountDrawDiscard','selfTagStacks','enemyTagStacks'].includes(sc.source) && sc.tag) ? `[${sc.tag}]` : '';
+    parts.push(`${def.label}: ${(src&&src.label)||sc.source}${tagPart}×${sc.perPoint}`);
+  });
+  return parts;
+}
+
 const CARDOP_TYPES = [
   {key:'moveToHand', label:'手札に移動する'},
   {key:'moveToDiscard', label:'捨て札に移動する'},
@@ -2741,11 +2836,11 @@ function resolveEnemyCardOp(r, op, done){
   const rollCount = (avail)=>{
     if(op.countMode==='all') return avail;
     if(op.countMode==='random'){
-      const a = op.countMin!==undefined?op.countMin:1, b = op.countMax!==undefined?op.countMax:1;
+      const a = cardOpValue(op,'countMin'), b = cardOpValue(op,'countMax');
       const lo = Math.min(a,b), hi = Math.max(a,b);
       return lo + Math.floor(Math.random()*(hi-lo+1));
     }
-    return op.countFixed!==undefined ? op.countFixed : 1;
+    return cardOpValue(op,'countFixed');
   };
   const nameOf = rawId=>{ const c = cardById(rawId); return c ? c.name : rawId; };
 
@@ -2771,7 +2866,7 @@ function resolveEnemyCardOp(r, op, done){
       pushLog(`${e.name}は「${names}」を生成した。`);
       picked.forEach(x=> enemyFreePlay(r, e, x.rawId));
     } else {
-      const w = Math.max(1, op.deckWeight||1);
+      const w = cardOpValue(op,'deckWeight');
       picked.forEach(x=>{ e.deck.push({cardId:x.rawId, weight:w, temp:true}); });
       pushLog(`${e.name}のデッキに「${names}」が加わった（重み${w}）。`);
     }
@@ -2797,7 +2892,7 @@ function resolveEnemyCardOp(r, op, done){
     sel.forEach(x=>{ e.deck.push({cardId:splitInstanceId(x.d.cardId).cid, weight:x.d.weight||1, temp:true}); });
     pushLog(`${e.name}のデッキに「${names}」の複製が加わった。`);
   } else if(op.type==='grantBuff'){
-    const field = op.buffField, amount = op.buffAmount||0;
+    const field = op.buffField, amount = cardOpValue(op,'buffAmount');
     if(field && amount){
       sel.forEach(x=>{
         const {cid, iid} = splitInstanceId(x.d.cardId);
@@ -2836,7 +2931,7 @@ function resolveCardOp(r, op, done){
   }
   // 敵が使う「手札に移動／山札に加える／捨て札に移動」は、プレイヤーの山を対象にする（通常の処理で解決。
   // 枚数の決め方が「プレイヤーが選ぶ」なら、選択画面が出る）。それ以外は、敵自身のデッキに作用する。
-  if(op.fromEnemy && ENEMY_ON_PLAYER_OPS.includes(op.type)) op = {...op, fromEnemy:false};
+  if(op.fromEnemy && ENEMY_ON_PLAYER_OPS.includes(op.type)) op = {...op, fromEnemy:false, _scaleActor:'enemy'};
   else if(op.fromEnemy){ resolveEnemyCardOp(r, op, done); return; }
   // The player never picks which card goes into the enemy's deck: "choose" acts as "fixed".
   if(op.type==='generateToEnemyDeck' && op.countMode==='choose') op = {...op, countMode:'fixed'};
@@ -2847,11 +2942,12 @@ function resolveCardOp(r, op, done){
   if(op.sequential && op.countMode!=='all'){
     let n;
     if(op.countMode==='random'){
-      const lo = Math.min(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
-      const hi = Math.max(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
+      const a = cardOpValue(op,'countMin'), b = cardOpValue(op,'countMax');
+      const lo = Math.min(a,b), hi = Math.max(a,b);
       n = lo + Math.floor(Math.random()*(hi-lo+1));
-    } else n = op.countFixed!==undefined ? op.countFixed : 1;
-    const single = {...op, sequential:false, countMode: op.countMode==='choose' ? 'choose' : 'fixed', countFixed:1};
+    } else n = cardOpValue(op,'countFixed');
+    const single = {...op, sequential:false, countMode: op.countMode==='choose' ? 'choose' : 'fixed', countFixed:1, scales:{...(op.scales||{})}};
+    delete single.scales.countFixed; // 1枚ずつ処理する各回には、枚数参照増減を再適用しない
     let i = 0;
     (function nextPick(){
       if(i>=n || r.enemy.hp<=0 || r.player.hp<=0){ done(); return; }
@@ -2865,8 +2961,8 @@ function resolveCardOp(r, op, done){
   // 「山札から手札へ移動」は通常のドローと同じ扱い：山札が足りないときは捨て札を山札に戻す
   if(op.type==='moveToHand' && (op.fromPile||'hand')==='draw' && op.countMode!=='all'){
     const need = op.countMode==='random'
-      ? Math.max(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1)
-      : (op.countFixed!==undefined ? op.countFixed : 1);
+      ? Math.max(cardOpValue(op,'countMin'), cardOpValue(op,'countMax'))
+      : cardOpValue(op,'countFixed');
     if(r.draw.length < need && r.discard.length>0){
       r.draw = shuffle([...r.draw, ...r.discard]);
       r.discard = [];
@@ -2893,7 +2989,7 @@ function resolveCardOp(r, op, done){
     // object is rebuilt for every battle, so nothing carries over. The move already
     // shown as the intent is not changed; the new entries count from the next roll on.
     if(op.type==='generateToEnemyDeck'){
-      const w = Math.max(1, op.deckWeight||1);
+      const w = cardOpValue(op,'deckWeight');
       selected.forEach(e=>{ r.enemy.deck.push({cardId:e.rawId, weight:w, temp:true}); });
       const names = selected.map(e=>{ const cc = cardById(e.rawId); return cc ? cc.name : e.rawId; });
       pushLog(`${r.enemy.name}のデッキに「${names.join('」「')}」が加わった（重み${w}）。`);
@@ -2972,7 +3068,7 @@ function resolveCardOp(r, op, done){
       done(); return;
     }
     if(op.type==='grantBuff'){
-      const field = op.buffField; const amount = op.buffAmount||0;
+      const field = op.buffField; const amount = cardOpValue(op,'buffAmount');
       if(field && amount){
         const store = op.permanent ? r.instanceBuffs : r.tempInstanceBuffs;
         selected.forEach(e=>{
@@ -2989,7 +3085,7 @@ function resolveCardOp(r, op, done){
       done(); return;
     }
     if(op.type==='costChange'){
-      const delta = op.costDelta|0;
+      const delta = cardOpValue(op,'costDelta');
       if(delta){
         const store = op.permanent ? r.instanceBuffs : r.tempInstanceBuffs;
         selected.forEach(e=>{
@@ -3059,7 +3155,7 @@ function resolveCardOp(r, op, done){
   }
 
   if(op.countMode==='choose'){
-    const need = Math.min(Math.max(op.countFixed!==undefined?op.countFixed:1, 0), entries.length);
+    const need = Math.min(Math.max(cardOpValue(op,'countFixed'), 0), entries.length);
     if(need<=0){ done(); return; }
     r.pendingChoice = {
       candidates: entries,
@@ -3075,10 +3171,10 @@ function resolveCardOp(r, op, done){
   let count;
   if(op.countMode==='all') count = entries.length;
   else if(op.countMode==='random'){
-    const lo = Math.min(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
-    const hi = Math.max(op.countMin!==undefined?op.countMin:1, op.countMax!==undefined?op.countMax:1);
+    const lo = Math.min(cardOpValue(op,'countMin'), cardOpValue(op,'countMax'));
+    const hi = Math.max(cardOpValue(op,'countMin'), cardOpValue(op,'countMax'));
     count = lo + Math.floor(Math.random()*(hi-lo+1));
-  } else count = op.countFixed!==undefined ? op.countFixed : 1;
+  } else count = cardOpValue(op,'countFixed');
 
   const selected = isGenerate
     ? pickWithReplacement(entries, Math.max(0,count))
@@ -4334,14 +4430,15 @@ function statusEffectFormHTML(eff, i){
     const op = eff.op || defaultStatusOp();
     const isGen = GENERATE_TYPES.includes(op.type);
     const sel = (f, list, cur)=>`<select ${opAt} data-f="${f}" ${f==='type'?'data-rerender="1"':''}>${list.map(o=>`<option value="${o.key}" ${o.key===cur?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
-    const num = (f,label,val)=>`<div><label>${label}</label><input type="number" ${opAt} data-f="${f}" data-num="1" value="${val}" min="0" max="20"></div>`;
+    const num = (f,label,val)=>`<div><label>${label}</label><input type="number" ${opAt} data-f="${f}" data-num="1" value="${val}" min="0" max="20">${cardOpScaleControlsHTML(op,f,`data-i="${i}"`)}</div>`;
     body = `
       ${magHTML('操作を行う回数（固定値、または1スタックあたりの係数）')}
-      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。敵が持っている間は視点が反転し、敵のターン開始時に、敵自身のデッキに作用します（「手札に移動／山札に加える／捨て札に移動」はプレイヤーの山が対象で、プレイヤーの次のターン開始時（手札を引いた後）に処理されます。「敵のデッキに加える」は、プレイヤーの山札に今すぐ加わります）。設定項目はカード効果のカード操作と同じです。</p>
+      ${statusCardOpMagnitudeScaleHTML(eff,i)}
+      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。
       <div class="field"><label>操作内容</label>${sel('type', STATUS_CARDOP_TYPES, op.type)}</div>
       ${isGen
         ? `<div class="field"><label>生成元プール</label>${sel('genPool', genPoolOptionsFor(op.type), op.genPool)}</div>
-           ${op.type==='generateToEnemyDeck' ? `<div class="ev-eff-grid"><div><label>敵のデッキでの重み（大きいほど選ばれやすい）</label><input type="number" ${opAt} data-f="deckWeight" data-num="1" value="${op.deckWeight||1}" min="1" max="99"></div></div>
+           ${op.type==='generateToEnemyDeck' ? `<div class="ev-eff-grid"><div><label>敵のデッキでの重み（大きいほど選ばれやすい）</label><input type="number" ${opAt} data-f="deckWeight" data-num="1" value="${op.deckWeight||1}" min="1" max="99">${cardOpScaleControlsHTML(op,'deckWeight',`data-i="${i}"`)}</div></div>
            <label style="display:block; margin:6px 0;"><input type="checkbox" ${opAt} data-f="drawNext" ${op.drawNext?'checked':''}> 敵が持っているとき: 加えたカードを次のターンに必ず引く（山札の一番上に置く）</label>
            <p class="ev-hint">プレイヤーが持っているときは、敵のデッキ一覧に、この戦闘の間だけ追加されます。今の予告は変わらず、次の次の行動から反映されます。敵が持っているときは逆にプレイヤーの山札に加わり、次のターンの最初のドローより前に処理されます（チェックなしなら山札に混ざり、引くことがあります）。</p>` : ''}`
         : `<div class="field"><label>対象の山</label>${sel('fromPile', PILE_OPTIONS.filter(p=>p.key!=='self'), op.fromPile)}</div>`}
@@ -4354,11 +4451,11 @@ function statusEffectFormHTML(eff, i){
       <div class="field"><label>対象タグ絞り込み（空欄で絞り込みなし）</label><input type="text" ${opAt} data-f="filterTag" value="${escapeHtml(op.filterTag||'')}"></div>
       <label style="display:block; margin:6px 0;"><input type="checkbox" ${opAt} data-f="sequential" ${op.sequential?'checked':''}> 1枚ずつ選び直す（1枚処理するごとに、そのあとの山の状態から次を選ぶ）</label>
       ${CARDOP_REVERTIBLE_TYPES.includes(op.type) ? `<label style="display:block; margin:6px 0;"><input type="checkbox" ${opAt} data-f="permanent" ${op.permanent?'checked':''}> 永続（戦闘が終わっても元に戻さない。チェックなしはこの戦闘中のみ）</label>` : ''}
-      ${op.type==='costChange' ? `<div class="field"><label>コストの増減量（マイナスで軽減。0未満にはならない）</label><input type="number" ${opAt} data-f="costDelta" data-num="1" value="${op.costDelta|0}" min="-9" max="9"></div>` : ''}
+      ${op.type==='costChange' ? `<div class="field"><label>コストの増減量（マイナスで軽減。0未満にはならない）</label><input type="number" ${opAt} data-f="costDelta" data-num="1" value="${op.costDelta|0}" min="-9" max="9">${cardOpScaleControlsHTML(op,'costDelta',`data-i="${i}"`)}</div>` : ''}
       ${op.type==='grantBuff' ? `
         <div class="field"><label>付与する効果</label><select ${opAt} data-f="buffField" data-rerender="1">
           ${allEffectFieldDefs().map(def=>`<option value="${escapeHtml(def.key)}" ${op.buffField===def.key?'selected':''}>${escapeHtml(def.label)}</option>`).join('')}</select></div>
-        <div class="field"><label>付与量（マイナスで減少も可）</label><input type="number" ${opAt} data-f="buffAmount" data-num="1" value="${op.buffAmount||0}" min="-99" max="99"></div>
+        <div class="field"><label>付与量（マイナスで減少も可）</label><input type="number" ${opAt} data-f="buffAmount" data-num="1" value="${op.buffAmount||0}" min="-99" max="99">${cardOpScaleControlsHTML(op,'buffAmount',`data-i="${i}"`)}</div>
         ${String(op.buffField||'').startsWith('cs_') ? `<div class="field"><label>付与先（付与したカードを使ったとき、この状態をどちらに付与するか）</label><select ${opAt} data-f="buffTarget">${[['default','カード側の設定／状態の標準のまま'],['self','自分に付与'],['opponent','相手に付与']].map(([v,t])=>`<option value="${v}" ${(op.buffTarget||'default')===v?'selected':''}>${t}</option>`).join('')}</select></div>` : ''}` : ''}`;
   }
   return `<div class="ev-eff">
@@ -4416,6 +4513,31 @@ function openStatusModal(status, isNew){
       : `<p class="ev-hint">効果がありません（下のメニューから追加してください）。</p>`;
   }
   function sync(t){
+    const magProp = t.dataset && t.dataset.magScaleProp;
+    if(magProp){
+      const eff = st.effects[parseInt(t.dataset.i,10)];
+      if(!eff || eff.kind!=='cardOp') return;
+      const old = eff.magnitudeScale || {source:'none',tag:'',perPoint:0};
+      if(magProp==='source') old.source = t.value;
+      else if(magProp==='tag') old.tag = cleanTag(t.value);
+      else if(magProp==='perPoint') old.perPoint = clampFloat(t.value,-10,10,0);
+      eff.magnitudeScale = old;
+      return;
+    }
+    const scaleField = t.dataset && t.dataset.opscaleField;
+    if(scaleField){
+      const eff = st.effects[parseInt(t.dataset.i,10)];
+      if(!eff || !eff.op) return;
+      const prop = t.dataset.opscaleProp;
+      eff.op.scales = (eff.op.scales && typeof eff.op.scales==='object') ? eff.op.scales : {};
+      const old = eff.op.scales[scaleField] || {source:'none',tag:'',perPoint:0};
+      if(prop==='source') old.source = t.value;
+      else if(prop==='tag') old.tag = cleanTag(t.value);
+      else if(prop==='perPoint') old.perPoint = clampFloat(t.value,-10,10,0);
+      if(old.source && old.source!=='none') eff.op.scales[scaleField] = old;
+      else eff.op.scales[scaleField] = {...old, source:'none'};
+      return;
+    }
     const f = t.dataset && t.dataset.f;
     if(!f) return;
     const eff = st.effects[parseInt(t.dataset.i,10)];
@@ -4431,9 +4553,44 @@ function openStatusModal(status, isNew){
   });
   box.addEventListener('change', e=>{
     sync(e.target);
+    if(e.target.dataset && e.target.dataset.magScaleProp==='source'){
+      const eff = st.effects[parseInt(e.target.dataset.i,10)];
+      const tools = e.target.closest('.op-scale-tools'), btn = tools && tools.querySelector('[data-mags-toggle]');
+      const active = !!(eff && eff.magnitudeScale && eff.magnitudeScale.source && eff.magnitudeScale.source!=='none');
+      if(btn) btn.textContent = active ? '増減設定を編集' : '+参照増減（操作回数）';
+    }
+    if(e.target.dataset && e.target.dataset.opscaleProp==='source'){
+      const eff = st.effects[parseInt(e.target.dataset.i,10)];
+      const field = e.target.dataset.opscaleField;
+      const tools = e.target.closest('.op-scale-tools'), btn = tools && tools.querySelector('[data-opscale-toggle]');
+      const active = !!(eff && eff.op && eff.op.scales && eff.op.scales[field] && eff.op.scales[field].source && eff.op.scales[field].source!=='none');
+      if(btn) btn.textContent = active ? '増減設定を編集' : '+参照増減';
+    }
     if(e.target.dataset && e.target.dataset.rerender) renderEffects();
   });
   box.addEventListener('click', e=>{
+    const magScaleBtn = e.target.closest('[data-mags-toggle]');
+    if(magScaleBtn){
+      const cfg = magScaleBtn.closest('.op-scale-tools')?.querySelector('[data-mags-config]');
+      if(cfg){
+        const showing = cfg.style.display!=='none';
+        cfg.style.display = showing ? 'none' : 'block';
+        magScaleBtn.textContent = showing ? '+参照増減（操作回数）' : '増減設定を編集';
+      }
+      return;
+    }
+    const scaleBtn = e.target.closest('[data-opscale-toggle]');
+    if(scaleBtn){
+      const field = scaleBtn.dataset.opscaleToggle;
+      const row = scaleBtn.closest('.op-scale-tools');
+      const cfg = row && row.querySelector(`.op-scale-config[data-opscale-config="${field}"]`);
+      if(cfg){
+        const showing = cfg.style.display!=='none';
+        cfg.style.display = showing ? 'none' : 'block';
+        scaleBtn.textContent = showing ? '+参照増減' : '増減設定を編集';
+      }
+      return;
+    }
     const ag = e.target.closest('[data-addgrant]');
     if(ag){
       const i = +ag.dataset.addgrant, eff = st.effects[i];
@@ -4957,7 +5114,7 @@ function openCardModal(card, isNew){
   const opBox = qs('#op-list', overlay);
   const opLab = t=>`<div style="font-size:10px; color:var(--parchment-dim); margin-bottom:2px;">${t}</div>`;
   const opSel = (f, list, cur)=>`<select data-opf="${f}" style="margin-bottom:8px; width:100%;">${list.map(o=>`<option value="${escapeHtml(o.key)}" ${o.key===cur?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
-  const opNum = (f, op, label)=>`<div style="flex:1;">${opLab(label)}<input type="number" data-opf="${f}" data-opnum="1" value="${op[f]|0}" min="${OP_NUM[f][0]}" max="${OP_NUM[f][1]}" style="width:100%;"></div>`;
+  const opNum = (f, op, label)=>`<div style="flex:1; min-width:0;">${opLab(label)}<input type="number" data-opf="${f}" data-opnum="1" value="${op[f]|0}" min="${OP_NUM[f][0]}" max="${OP_NUM[f][1]}" style="width:100%;">${cardOpScaleControlsHTML(op,f)}</div>`;
   function opBlockHTML(op, i){
     const isGen = GENERATE_TYPES.includes(op.type);
     const isSelf = !isGen && op.fromPile==='self';
@@ -4974,7 +5131,7 @@ function openCardModal(card, isNew){
         <div class="checkbox-field" style="margin-bottom:6px;"><input type="checkbox" data-opf="drawNext" ${op.drawNext?'checked':''}><label>敵が使うとき: 加えたカードを次のターンに必ず引く（山札の一番上に置く）</label></div>
         <div class="hint" style="margin-bottom:6px;">敵が使うと、このカードはプレイヤーの山札に加わります（次のターンの最初のドローより前に処理）。チェックなしなら山札にシャッフルして混ぜるので、次のターンに引くことがあります。手札の枚数より多く加えた場合、引ききれない分は山札の上に残ります。</div>
         ${opLab('敵のデッキでの重み（大きいほど選ばれやすい）')}
-        <input type="number" data-opf="deckWeight" data-opnum="1" value="${op.deckWeight|0}" min="1" max="99" style="width:100%; margin-bottom:4px;">
+        <input type="number" data-opf="deckWeight" data-opnum="1" value="${op.deckWeight|0}" min="1" max="99" style="width:100%; margin-bottom:4px;">${cardOpScaleControlsHTML(op,'deckWeight')}
         <div class="hint" style="margin-bottom:8px;">敵のデッキ一覧に、この戦闘の間だけ追加されます（戦闘が終わると消えます）。敵は毎ターン、デッキ一覧から3つを無作為に引き、その中から重みに比例して行動を選びます。今表示されている予告は変わらず、次の次の行動から反映されます。</div>` : ''}
       ${isSelf ? `<div class="hint" style="margin-bottom:8px;">使用中のこのカード1枚が対象です（枚数・選択・タグ絞り込みは使いません）。</div>` : `
         ${opLab('枚数の決め方')}
@@ -4991,17 +5148,32 @@ function openCardModal(card, isNew){
       ${CARDOP_REVERTIBLE_TYPES.includes(op.type) ? `<div style="margin-top:10px;">
         <div class="checkbox-field" style="margin-bottom:4px;"><input type="checkbox" data-opf="permanent" ${op.permanent?'checked':''}><label>永続にする（戦闘後も元に戻さない）</label></div>
         <div class="hint">オフ＝この戦闘中のみ（強化・付与・コスト増減・複製・生成は戦闘後に元へ戻る）。消滅は、オンにするとそのカードを探索から完全に取り除きます。</div></div>` : ''}
-      ${op.type==='costChange' ? `<div style="margin-top:10px;">${opLab('コストの増減量（マイナスで軽減。0未満にはなりません）')}<input type="number" data-opf="costDelta" data-opnum="1" value="${op.costDelta|0}" min="-9" max="9" style="width:100%;"></div>` : ''}
+      ${op.type==='costChange' ? `<div style="margin-top:10px;">${opLab('コストの増減量（マイナスで軽減。0未満にはなりません）')}<input type="number" data-opf="costDelta" data-opnum="1" value="${op.costDelta|0}" min="-9" max="9" style="width:100%;">${cardOpScaleControlsHTML(op,'costDelta')}</div>` : ''}
       ${op.type==='grantBuff' ? `<div style="margin-top:10px;">
         ${opLab('付与する効果')}
         <select data-opf="buffField" style="margin-bottom:8px; width:100%;">${defs.map(d=>`<option value="${escapeHtml(d.key)}" ${op.buffField===d.key?'selected':''}>${escapeHtml(d.label)}</option>`).join('')}</select>
         ${opLab('付与量（マイナスで減少も可）')}
-        <input type="number" data-opf="buffAmount" data-opnum="1" value="${op.buffAmount|0}" min="-99" max="99" style="width:100%;">
+        <input type="number" data-opf="buffAmount" data-opnum="1" value="${op.buffAmount|0}" min="-99" max="99" style="width:100%;">${cardOpScaleControlsHTML(op,'buffAmount')}
         ${String(op.buffField||'').startsWith('cs_') ? `<div style="margin-top:8px;">${opLab('付与先（付与したカードを使ったとき、この状態をどちらに付与するか）')}<select data-opf="buffTarget" style="width:100%;">${[['default','カード側の設定／状態の標準のまま'],['self','自分に付与'],['opponent','相手に付与']].map(([v,t])=>`<option value="${v}" ${(op.buffTarget||'default')===v?'selected':''}>${t}</option>`).join('')}</select></div>` : ''}</div>` : ''}
     </div>`;
   }
   const renderOps = ()=>{
     opBox.innerHTML = opsState.length ? opsState.map(opBlockHTML).join('') : '<p class="hint">カード操作はありません。</p>';
+  };
+  const opScaleSync = t=>{
+    const field = t.dataset && t.dataset.opscaleField;
+    if(!field) return false;
+    const blk = t.closest && t.closest('.op-block');
+    if(!blk) return false;
+    const op = opsState[+blk.dataset.i]; if(!op) return false;
+    op.scales = (op.scales && typeof op.scales==='object') ? op.scales : {};
+    const sc = op.scales[field] || {source:'none',tag:'',perPoint:0};
+    const prop = t.dataset.opscaleProp;
+    if(prop==='source') sc.source = t.value;
+    else if(prop==='tag') sc.tag = cleanTag(t.value);
+    else if(prop==='perPoint') sc.perPoint = clampFloat(t.value,-10,10,0);
+    op.scales[field] = sc;
+    return true;
   };
   const opSync = (t)=>{
     const f = t.dataset && t.dataset.opf; const blk = t.closest && t.closest('.op-block');
@@ -5013,14 +5185,40 @@ function openCardModal(card, isNew){
     else op[f] = t.value;
     return true;
   };
-  opBox.addEventListener('input', e=>{ opSync(e.target); });
+  opBox.addEventListener('input', e=>{ if(!opScaleSync(e.target)) opSync(e.target); });
   opBox.addEventListener('change', e=>{
-    if(!opSync(e.target)) return;
+    const isScale = opScaleSync(e.target);
+    if(!isScale && !opSync(e.target)) return;
+    if(isScale){
+      const field = e.target.dataset.opscaleField, prop = e.target.dataset.opscaleProp;
+      const blk = e.target.closest('.op-block');
+      const op = blk && opsState[+blk.dataset.i];
+      if(prop==='source'){
+        const tools = e.target.closest('.op-scale-tools'), btn = tools && tools.querySelector('[data-opscale-toggle]');
+        const active = !!(op && op.scales[field] && op.scales[field].source && op.scales[field].source!=='none');
+        if(btn) btn.textContent = active ? '増減設定を編集' : '+参照増減';
+      }
+      return;
+    }
     const f = e.target.dataset.opf, op = opsState[+e.target.closest('.op-block').dataset.i];
     if(f==='type' && op.type==='play' && op.fromPile==='self') op.fromPile = 'hand';   // 自分自身を使い直す操作は作れない
     if(f==='type' || f==='fromPile' || f==='countMode' || f==='buffField') renderOps();
   });
-  opBox.addEventListener('click', e=>{ const b = e.target.closest('[data-opdel]'); if(b){ opsState.splice(+b.dataset.opdel,1); renderOps(); } });
+  opBox.addEventListener('click', e=>{
+    const scaleBtn = e.target.closest('[data-opscale-toggle]');
+    if(scaleBtn){
+      const field = scaleBtn.dataset.opscaleToggle;
+      const row = scaleBtn.closest('.op-scale-tools');
+      const cfg = row && row.querySelector(`.op-scale-config[data-opscale-config="${field}"]`);
+      if(cfg){
+        const showing = cfg.style.display!=='none';
+        cfg.style.display = showing ? 'none' : 'block';
+        scaleBtn.textContent = showing ? '+参照増減' : '増減設定を編集';
+      }
+      return;
+    }
+    const b = e.target.closest('[data-opdel]'); if(b){ opsState.splice(+b.dataset.opdel,1); renderOps(); }
+  });
   qs('#op-add', overlay).onclick = ()=>{ opsState.push(defaultStatusOp()); renderOps(); };
   renderOps();
   qs('#m-save',overlay).onclick = async ()=>{
