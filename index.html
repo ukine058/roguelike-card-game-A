@@ -4434,7 +4434,7 @@ function statusEffectFormHTML(eff, i){
     body = `
       ${magHTML('操作を行う回数（固定値、または1スタックあたりの係数）')}
       ${statusCardOpMagnitudeScaleHTML(eff,i)}
-      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。
+      <p class="ev-hint">プレイヤーがこの状態を持っている間（スタック1以上）、自分のターン開始時（手札を引いた後）に発動します。敵が持っている間は視点が反転し、敵のターン開始時に、敵自身のデッキに作用します（「手札に移動／山札に加える／捨て札に移動」はプレイヤーの山が対象で、プレイヤーの次のターン開始時（手札を引いた後）に処理されます。「敵のデッキに加える」は、プレイヤーの山札に今すぐ加わります）。設定項目はカード効果のカード操作と同じです。</p>
       <div class="field"><label>操作内容</label>${sel('type', STATUS_CARDOP_TYPES, op.type)}</div>
       ${isGen
         ? `<div class="field"><label>生成元プール</label>${sel('genPool', genPoolOptionsFor(op.type), op.genPool)}</div>
@@ -5142,7 +5142,8 @@ function openCardModal(card, isNew){
           <option value="choose" ${op.countMode==='choose'?'selected':''}>プレイヤーが任意に選ぶ</option>
         </select>
         <div style="display:flex; gap:6px; margin-bottom:8px;">${opNum('countFixed',op,'固定数 / 選ぶ枚数')}${opNum('countMin',op,'ランダム最小')}${opNum('countMax',op,'ランダム最大')}</div>
-        ${isGen ? '' : `${opLab('対象タグ絞り込み（空欄で絞り込みなし）')}<input type="text" data-opf="filterTag" value="${escapeHtml(op.filterTag||'')}" style="width:100%;">`}
+        ${opLab('対象タグ絞り込み（空欄で絞り込みなし）')}
+        <input type="text" data-opf="filterTag" value="${escapeHtml(op.filterTag||'')}" style="width:100%;">
         <div class="checkbox-field" style="margin-top:8px; margin-bottom:4px;"><input type="checkbox" data-opf="sequential" ${op.sequential?'checked':''}><label>1枚ずつ選び直す（1枚処理するたびに次の1枚を選ぶ）</label></div>
         <div class="hint">オフ＝最初に全部まとめて選ぶ。オン＝1枚処理してから次を選ぶので、直前の効果で増減した手札なども対象になります（任意選択なら1枚ずつ選択画面が出ます。「対象すべて」では無効）。</div>`}
       ${CARDOP_REVERTIBLE_TYPES.includes(op.type) ? `<div style="margin-top:10px;">
